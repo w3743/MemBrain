@@ -1,66 +1,66 @@
-# 类脑记忆 — LLM Agent 记忆引擎
+# 🧠 MemBrain — LLM Agent 记忆引擎
 
 <p align="center">
-  <em>为 pi coding agent 设计的类脑持久化记忆子系统</em>
+  <img src="https://img.shields.io/badge/Python-3.10+-blue" alt="Python">
+  <img src="https://img.shields.io/badge/License-GPL%20v3-green" alt="License">
+  <br>
+  <em>类脑持久化记忆子系统 · BGE 语义检索 · FSRS 间隔强化 · DeepSeek 自动提取</em>
 </p>
+
+---
+
+## ⚡ 5 分钟快速开始
+
+```bash
+# 1. 安装
+pip install git+https://github.com/w3743/MemBrain.git
+
+# 2. 启动（核心依赖仅 Python 标准库）
+membrain serve
+
+# 3. 浏览器打开 Web 控制台
+# http://127.0.0.1:8765/admin
+```
+
+> 💡 `sentence-transformers` 可选——安装后启用 BGE 语义向量检索；不装也能用关键词检索。
 
 ---
 
 ## 这是什么
 
-MB（MemBrain / 类脑记忆）是 pi coding agent 的记忆后端，让 pi 能记住跨会话的用户偏好、项目约定和纠正历史。
-
-技术方案：每条记忆以指数曲线衰减（模拟遗忘），被检索并使用时按 FSRS 间隔效应强化（使用间隔越久，强化收益越大）。DeepSeek LLM 自动从对话中提取值得记住的内容。
+MB（MemBrain / 类脑记忆）是为 LLM Agent 设计的持久化记忆引擎。它让 Agent 能记住跨会话的用户偏好、项目约定和纠正历史。
 
 ```
-存储: SQLite + FTS5   检索: BGE 语义向量 + 关键词混合
+存储: SQLite + FTS5   检索: BGE 语义向量 + BM25 关键词混合
 衰减: R(t) = s₀·e^(-d·t)     强化: FSRS 间隔效应
 仲裁: DeepSeek LLM 自动提取   进化: used/ignored/corrected 反馈自适应
 ```
 
-核心依赖只有 Python 标准库。`sentence-transformers` 可选（提供语义检索，不装也能用关键词检索）。
-
 ---
 
-## 在 pi agent 中使用
+## ✨ 核心特性
 
-### 1. 安装 Python 后端
+| 特性 | 说明 |
+|------|------|
+| 🧬 **类脑衰减** | 指数遗忘曲线 R(t) = s₀·e^(-d·t)，模拟人脑记忆消退 |
+| 🔁 **FSRS 强化** | 被检索使用的记忆按间隔效应增强——越久没用的记忆被重新引用时增益越大 |
+| 🎯 **混合检索** | BGE-large-zh-v1.5 稠密向量 + FTS5 BM25 稀疏检索，语义与精确兼顾 |
+| 🤖 **LLM 仲裁** | DeepSeek 自动分析对话，决定提取/更新/合并/忽略/纠正记忆 |
+| 📊 **L1/L2/L3 分层** | 动态百分位分层，优先级自适应调整 |
+| 🔄 **进化反馈** | used / ignored / corrected 三元反馈驱动记忆质量持续优化 |
+| 🌐 **HTTP Sidecar** | 独立 HTTP 服务，适配 pi / LangChain / 任意 Agent 框架 |
+| 🖥️ **Web 控制台** | 中文管理界面，可视化管理记忆、查看健康报告 |
 
-```bash
-pip install git+https://github.com/w3743/CSM.git
-pip install "membrain[local-embedding]@git+https://github.com/w3743/CSM.git"  # 含语义向量
-```
+### 与同类方案对比
 
-### 2. 安装 pi 扩展
-
-```bash
-pi install git:github.com/w3743/CSM.git
-```
-
-### 3. 配置 DeepSeek
-
-```bash
-set DEEPSEEK_API_KEY=sk-xxx
-```
-
-### 4. 启动 pi
-
-```bash
-pi
-```
-
-pi 启动时扩展自动拉起 CSM sidecar，之后每次对话：
-- 提问前 → 检索相关记忆，注入到系统提示
-- 回答后 → DeepSeek 仲裁器分析对话，提取新记忆
-
-### 手动管理
-
-```bash
-membrain serve           # 单独启动 Sidecar + Web 控制台
-membrain health           # 查看健康报告
-```
-
-浏览器打开 `http://127.0.0.1:8765/admin` 进入管理控制台。
+| | MemBrain | Mem0 | Letta (MemGPT) |
+|------|:--:|:--:|:--:|
+| 记忆衰减模型 | ✅ 指数衰减+FSRS强化 | ❌ | ❌ |
+| 进化反馈 | ✅ used/ignored/corrected | ❌ | ❌ |
+| 检索方式 | BGE稠密 + BM25稀疏 | Embedding | Embedding |
+| LLM 自动提取 | ✅ DeepSeek 仲裁 | ✅ | ✅ |
+| Web 控制台 | ✅ 中文界面 | ❌ | ❌ |
+| 核心依赖 | Python 标准库 | 多重依赖 | 多重依赖 |
 
 ---
 
@@ -96,26 +96,64 @@ score = 语义相似度 × 当前强度 R × (1 + boost)
 
 ---
 
-## 命令行
+## 📦 安装
+
+### 基础安装（关键词检索）
 
 ```bash
-membrain serve                           # 启动 Sidecar
-membrain add "内容" --project demo        # 手动存入
-membrain search "查询" --project demo     # 检索
-membrain sleep                            # 睡眠整理
+pip install git+https://github.com/w3743/MemBrain.git
+```
+
+### 完整安装（含 BGE 语义向量）
+
+```bash
+pip install "membrain[local-embedding]@git+https://github.com/w3743/MemBrain.git"
+```
+
+### 配置 DeepSeek
+
+```bash
+set DEEPSEEK_API_KEY=sk-xxx
+```
+
+---
+
+## 🚀 在 pi agent 中使用
+
+```bash
+# 安装 pi 扩展
+pi install git:github.com/w3743/MemBrain.git
+
+# 启动 pi（扩展自动拉起 sidecar）
+pi
+```
+
+每次对话：
+- **提问前** → 自动检索相关记忆，注入到系统提示
+- **回答后** → DeepSeek 仲裁器分析对话，提取新记忆
+
+---
+
+## 📋 命令行
+
+```bash
+membrain serve                           # 启动 Sidecar + Web 控制台
+membrain add "内容" --project demo        # 手动存入记忆
+membrain search "查询" --project demo     # 检索记忆
+membrain sleep                            # 触发睡眠整理
 membrain health                           # 健康报告
-membrain demo                             # 演示
+membrain demo                             # 运行演示
 membrain eval-all                         # 完整评测
 ```
 
 ---
 
-## HTTP API
+## 🌐 HTTP API
 
 | 端点 | 用途 |
 |------|------|
-| `/pre_prompt` | pi 提问前检索记忆 |
-| `/post_run` | pi 回答后提取记忆 |
+| `/pre_prompt` | 提问前检索记忆 |
+| `/post_run` | 回答后提取记忆 |
 | `/remember` | 手动存入 |
 | `/sleep` | 触发睡眠整理 |
 | `/health` | 健康检查 |
@@ -123,18 +161,18 @@ membrain eval-all                         # 完整评测
 
 ---
 
-## 项目结构
+## 📁 项目结构
 
 ```
 ├── src/membrain/        # 核心代码（14 个模块）
 │   ├── engine.py         # 记忆生命周期
 │   ├── strength.py       # 强度模型（FSRS 风格）
 │   ├── store.py          # SQLite + FTS5
-│   ├── retrieval.py      # 混合检索
+│   ├── retrieval.py      # 混合检索（稠密+稀疏）
 │   ├── evolution.py      # 自适应进化
 │   ├── embedding.py      # BGE 嵌入
 │   ├── extractor.py      # DeepSeek 仲裁器
-│   ├── adapters.py       # pi/OpenClaw/Hermes 适配
+│   ├── adapters.py       # Agent 框架适配器
 │   ├── server.py         # HTTP Sidecar + 控制台
 │   └── ...
 ├── pi-extension/         # pi Agent 扩展
