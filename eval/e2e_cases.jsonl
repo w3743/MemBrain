@@ -1,0 +1,38 @@
+# CSM 端到端评测用例 — 测试多轮对话中的记忆生命周期
+# 字段：
+#   id: 用例标识
+#   project_id: 项目 ID
+#   history: 模拟的多轮对话历史（每轮是一条用户输入）
+#   query: 最终查询
+#   expected_contains: 最终上下文必须包含的内容
+#   forbidden_contains: 最终上下文不得包含的内容
+
+# ═══ 偏好持久化 ═══
+{"id":"e2e_pref_persist","project_id":"demo","history":["以后回答技术问题时，请先给结论，再给必要步骤。"],"query":"回答技术问题时应该怎么组织？","expected_contains":"先给结论"}
+
+# ═══ 临时信息不应该被记住 ═══
+{"id":"e2e_temp_rejected","project_id":"demo","history":["今天临时使用 test@example.com 做一次登录测试。","以后回答技术问题时，请先给结论。"],"query":"我的长期回答偏好是什么？","expected_contains":"先给结论","forbidden_contains":"test@example.com"}
+
+# ═══ Supersede 链：旧信息被替代 ═══
+{"id":"e2e_supersede_chain","project_id":"demo","history":["项目依赖管理使用 pnpm install。","项目依赖管理已改用 bun install。","项目依赖管理又改用 yarn 了。"],"query":"安装依赖用什么命令？","expected_contains":"yarn","forbidden_contains":"pnpm install"}
+
+# ═══ 多项目隔离 ═══
+{"id":"e2e_multi_project","project_id":"demo","history":["前端项目使用 React + TypeScript。","后端项目使用 Python + FastAPI。"],"query":"这个项目的前端用什么？","expected_contains":"React","forbidden_contains":"FastAPI"}
+
+# ═══ 名字记忆 + 修正 ═══
+{"id":"e2e_name_correction","project_id":"demo","history":["我的名字叫王家裕。","纠正一下，我叫江家裕，之前记错了。"],"query":"应该怎么称呼你？","expected_contains":"江家裕","forbidden_contains":"王家裕"}
+
+# ═══ 长对话中提取多个关键信息 ═══
+{"id":"e2e_multi_fact","project_id":"demo","history":["这个项目的数据库用 PostgreSQL 15。","缓存用 Redis 7，部署用 Docker Compose。","代码注释用中文，变量名用英文。"],"query":"这个项目的技术栈是什么？","expected_contains":"PostgreSQL","forbidden_contains":""}
+
+# ═══ 流程 / 步骤记忆 ═══
+{"id":"e2e_procedure","project_id":"demo","history":["部署步骤：先运行 pnpm build，然后 docker compose up -d，最后检查 /health 端点。"],"query":"怎么部署这个项目？","expected_contains":"pnpm build"}
+
+# ═══ 多次强化后排序提升 ═══
+{"id":"e2e_reinforce_rank","project_id":"demo","history":["临时的东西不要记住。","偏好简洁中文回答。","偏好简洁中文回答。","偏好简洁中文回答。"],"query":"回答风格？","expected_contains":"简洁"}
+
+# ═══ 密钥保留不丢失 ═══
+{"id":"e2e_secret_preserved","project_id":"demo","history":["记住 API key 是 sk-abc123。","以后找我可以用 user@example.com。"],"query":"API key 是什么？","expected_contains":"sk-abc123"}
+
+# ═══ 否定信息处理 ═══
+{"id":"e2e_negation","project_id":"demo","history":["不要用 MySQL，这个项目只用 PostgreSQL。","数据库配置在 .env 文件里。"],"query":"数据库用的是什么？","expected_contains":"PostgreSQL","forbidden_contains":"MySQL"}

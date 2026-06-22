@@ -1,0 +1,58 @@
+# CSM 抽取评测用例 — 测试 LLM 仲裁器的判断准确度
+# 每行一个 JSON 对象，字段：
+#   id: 用例标识
+#   user_input: 模拟用户输入
+#   project_id: 项目 ID
+#   expected_op: 期望操作 (ADD|NOOP|SUPERSEDE|UPDATE|ARCHIVE|DELETE)
+#   must_contain: 期望输出中必须包含的内容（可选）
+#   must_not_contain: 期望输出中不得包含的内容（可选）
+
+# ═══ 核心身份 — 应该 ADD ═══
+{"id":"identity_name","user_input":"我的名字叫王家裕。","project_id":"demo","expected_op":"ADD","must_contain":"王家裕"}
+{"id":"identity_role","user_input":"我是这个项目的技术负责人，负责架构决策。","project_id":"demo","expected_op":"ADD","must_contain":"技术负责"}
+{"id":"identity_nickname","user_input":"你可以叫我小裕，不用太正式。","project_id":"demo","expected_op":"ADD","must_contain":"小裕"}
+
+# ═══ 长期偏好 — 应该 ADD ═══
+{"id":"pref_answer_style","user_input":"以后回答技术问题时，请先给结论，再给必要步骤。","project_id":"demo","expected_op":"ADD","must_contain":"先给结论"}
+{"id":"pref_language","user_input":"所有代码注释请用中文，变量名用英文。","project_id":"demo","expected_op":"ADD","must_contain":"中文"}
+{"id":"pref_tool","user_input":"我偏好使用 pnpm 而不是 npm 来管理依赖。","project_id":"demo","expected_op":"ADD","must_contain":"pnpm"}
+{"id":"pref_concise","user_input":"回答尽量简洁，不要展开无关的细节。","project_id":"demo","expected_op":"ADD","must_contain":"简洁"}
+
+# ═══ 项目事实 — 应该 ADD ═══
+{"id":"proj_backend","user_input":"OpenClaw demo 工作区使用 sqlite-vec 作为向量后端。","project_id":"openclaw-demo","expected_op":"ADD","must_contain":"sqlite-vec"}
+{"id":"proj_constraint","user_input":"这个项目不支持 IE11，最低浏览器要求是 Chrome 90+。","project_id":"demo","expected_op":"ADD","must_contain":"Chrome 90"}
+{"id":"proj_convention","user_input":"所有 React 组件用 PascalCase，工具函数用 camelCase，常量用 UPPER_SNAKE。","project_id":"demo","expected_op":"ADD","must_contain":"PascalCase"}
+{"id":"proj_dependency","user_input":"项目依赖：Python 3.10+, PostgreSQL 15, Redis 7。","project_id":"backend","expected_op":"ADD","must_contain":"PostgreSQL"}
+
+# ═══ 流程记忆 — 应该 ADD ═══
+{"id":"proc_deploy","user_input":"部署步骤：1. pnpm build  2. docker compose up -d  3. 健康检查 /health","project_id":"demo","expected_op":"ADD","must_contain":"pnpm build"}
+{"id":"proc_test","user_input":"跑测试用 pytest -xvs，覆盖率用 pytest --cov=src --cov-report=html。","project_id":"demo","expected_op":"ADD","must_contain":"pytest -xvs"}
+
+# ═══ 密钥/敏感信息 — 应该 ADD（不拒绝，只标注） ═══
+{"id":"secret_api_key","user_input":"记住 api_key = sk_test_1234567890abcdef","project_id":"demo","expected_op":"ADD","must_contain":"sk_test_1234567890abcdef"}
+{"id":"secret_token","user_input":"GitHub token 是 ghp_xxxxxxxxxxxxxxxxxxxx","project_id":"demo","expected_op":"ADD","must_contain":"ghp_"}
+
+# ═══ 应该 NOOP（不值得记住的） ═══
+{"id":"noop_hello","user_input":"你好","project_id":"demo","expected_op":"NOOP"}
+{"id":"noop_weather","user_input":"今天天气怎么样？","project_id":"demo","expected_op":"NOOP"}
+{"id":"noop_greeting","user_input":"早上好！今天开始工作吧。","project_id":"demo","expected_op":"NOOP"}
+{"id":"noop_tired","user_input":"我现在有点困，脑子不太清楚。","project_id":"demo","expected_op":"NOOP"}
+{"id":"noop_vague","user_input":"这个功能可能有用，也可能没用。","project_id":"demo","expected_op":"NOOP"}
+{"id":"noop_knowledge","user_input":"Python 的列表推导式 [x for x in range(10)] 怎么用？","project_id":"demo","expected_op":"NOOP"}
+{"id":"noop_opinion","user_input":"我觉得 React 比 Vue 好用一点。","project_id":"demo","expected_op":"NOOP"}
+{"id":"noop_empty","user_input":"","project_id":"demo","expected_op":"NOOP"}
+
+# ═══ 应 SUPERSEDE（新信息替代旧信息） ═══
+{"id":"supersede_pkg","user_input":"项目依赖管理已改用 bun install。","project_id":"demo","expected_op":"SUPERSEDE","must_contain":"bun install"}
+{"id":"supersede_name","user_input":"纠正一下，我的名字其实是江家裕，不是王家裕。","project_id":"demo","expected_op":"SUPERSEDE","must_contain":"江家裕"}
+
+# ═══ 边界情况 ═══
+{"id":"edge_mixed_lang","user_input":"Default language for this project is TypeScript, 默认使用 strict mode。","project_id":"demo","expected_op":"ADD","must_contain":"TypeScript"}
+{"id":"edge_url","user_input":"数据库管理后台地址是 http://localhost:8080/admin","project_id":"demo","expected_op":"ADD","must_contain":"localhost:8080"}
+{"id":"edge_email","user_input":"联系我 user@example.com","project_id":"demo","expected_op":"ADD","must_contain":"user@example.com"}
+{"id":"edge_code_block","user_input":"记住这个常用模式：```python\ndef singleton(cls):\n    instances = {}\n    def wrapper(*args, **kw):\n        if cls not in instances:\n            instances[cls] = cls(*args, **kw)\n        return instances[cls]\n    return wrapper\n```","project_id":"demo","expected_op":"ADD","must_contain":"singleton"}
+{"id":"edge_numbers","user_input":"当前项目有 47 个源文件，覆盖了 12 个模块。","project_id":"demo","expected_op":"NOOP","must_not_contain":"47"}
+
+# ═══ 多标签记忆 ═══
+{"id":"multi_tag_1","user_input":"前端使用 React 18 + TypeScript + Tailwind CSS，状态管理用 Zustand。","project_id":"frontend","expected_op":"ADD","must_contain":"Zustand"}
+{"id":"multi_tag_2","user_input":"后端使用 FastAPI + SQLAlchemy + Alembic，部署在 AWS ECS。","project_id":"backend","expected_op":"ADD","must_contain":"FastAPI"}

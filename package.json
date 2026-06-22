@@ -1,0 +1,12 @@
+{
+  "name": "csm-memory",
+  "version": "1.0.0",
+  "description": "Continuous Strength Memory for pi agent — cross-session persistent memory with semantic retrieval and LLM-driven arbitration",
+  "keywords": ["pi-package", "memory", "llm", "agent"],
+  "author": "CSM Agent Project",
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./pi-extension/csm-memory.ts"],
+    "image": "https://raw.githubusercontent.com/xxx/csm-agent/main/docs/screenshot.png"
+  }
+}

@@ -1,0 +1,42 @@
+# CSM 检索评测用例 — 测试检索质量和排序准确度
+# 字段：
+#   id: 用例标识
+#   query: 查询文本
+#   project_id: 项目 ID（测试跨项目隔离）
+#   expected_contains: 结果中必须包含的内容
+#   forbidden_contains: 结果中不得包含的内容
+#   k: top-k 检索数量
+#   min_score: 第一名最低分数要求（可选）
+
+# ═══ 精确匹配 ═══
+{"id":"ret_exact_pkg","query":"安装依赖用什么命令？","project_id":"demo","expected_contains":"bun install","forbidden_contains":"pnpm install","k":3}
+{"id":"ret_exact_style","query":"回答技术问题时应该什么风格？","project_id":"demo","expected_contains":"先给结论","k":3}
+{"id":"ret_exact_backend","query":"OpenClaw demo 的向量后端是什么？","project_id":"openclaw-demo","expected_contains":"sqlite-vec","k":3}
+
+# ═══ 语义匹配（同义词/换说法） ═══
+{"id":"ret_sem_build","query":"这个项目的构建工具是什么？","project_id":"demo","expected_contains":"bun install","k":3}
+{"id":"ret_sem_answer","query":"代码的回答方式有什么特殊要求吗","project_id":"demo","expected_contains":"先给结论","k":3}
+{"id":"ret_sem_pkg","query":"包管理器用的是哪个","project_id":"demo","expected_contains":"bun","k":3}
+{"id":"ret_sem_deploy","query":"怎么把这个服务部署上线","project_id":"demo","expected_contains":"pnpm build","k":3}
+
+# ═══ 跨项目隔离 ═══
+{"id":"ret_isolation_1","query":"向量后端是什么？","project_id":"other-project","expected_contains":"","forbidden_contains":"sqlite-vec","k":5}
+{"id":"ret_isolation_2","query":"用什么装依赖","project_id":"other-project","expected_contains":"","forbidden_contains":"bun","k":5}
+
+# ═══ 部分匹配 ═══
+{"id":"ret_partial_vec","query":"向量","project_id":"openclaw-demo","expected_contains":"sqlite-vec","k":5}
+{"id":"ret_partial_dep","query":"依赖","project_id":"demo","expected_contains":"bun","k":5}
+
+# ═══ 边界情况 ═══
+{"id":"ret_empty","query":"","project_id":"demo","expected_contains":"","k":3}
+{"id":"ret_nonexist","query":"量子计算框架怎么用","project_id":"demo","expected_contains":"","k":3}
+{"id":"ret_english","query":"how to install dependencies","project_id":"demo","expected_contains":"bun install","k":5}
+{"id":"ret_short","query":"ws","project_id":"demo","expected_contains":"","k":3}
+
+# ═══ 排序质量 ═══
+{"id":"ret_rank_pref","query":"回答风格偏好","project_id":"demo","expected_contains":"简洁","k":5}
+{"id":"ret_rank_deploy","query":"部署流程","project_id":"demo","expected_contains":"pnpm build","k":5}
+
+# ═══ 多语言 ═══
+{"id":"ret_cn_to_en","query":"vector backend","project_id":"openclaw-demo","expected_contains":"sqlite-vec","k":5}
+{"id":"ret_en_to_cn","query":"Chinese answer style","project_id":"demo","expected_contains":"简洁","k":5}

@@ -1,0 +1,34 @@
+[project]
+name = "csm-agent"
+version = "1.0.0"
+description = "Continuous Strength Memory — emergent intelligence from simple algorithms. A long-term memory subsystem for LLM agents with SQLite persistence, semantic retrieval, and LLM-driven memory arbitration."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+authors = [{ name = "CSM Agent Project" }]
+keywords = ["llm", "agent", "memory", "retrieval", "sqlite", "deepseek"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Intended Audience :: Developers",
+]
+
+[project.scripts]
+csm-agent = "csm_agent.cli:main"
+
+[project.optional-dependencies]
+local-embedding = ["sentence-transformers>=3.0.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

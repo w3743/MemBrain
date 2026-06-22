@@ -1,0 +1,33 @@
+# CSM 强度模型评测用例 — 测试衰减、强化、动态阈值的数学正确性
+# 每行一个 JSON 对象，字段：
+#   id: 用例标识
+#   type: 测试类型 (decay|reinforce|threshold|saturation)
+#   initial_strength: 初始强度
+#   days_elapsed: 经过天数
+#   access_count: 访问次数
+#   expected_range: [min, max] 期望的最终强度区间
+#   expected_layer: 期望层级（在给定分布下）
+
+# ═══ 衰减测试 ═══
+{"id":"decay_1day","type":"decay","initial_strength":1.0,"days_elapsed":1,"access_count":0,"expected_range":[0.97,0.99]}
+{"id":"decay_7day","type":"decay","initial_strength":1.0,"days_elapsed":7,"access_count":0,"expected_range":[0.86,0.88]}
+{"id":"decay_30day","type":"decay","initial_strength":1.0,"days_elapsed":30,"access_count":0,"expected_range":[0.54,0.56]}
+{"id":"decay_100day","type":"decay","initial_strength":1.0,"days_elapsed":100,"access_count":0,"expected_range":[0.13,0.14]}
+{"id":"decay_365day","type":"decay","initial_strength":1.0,"days_elapsed":365,"access_count":0,"expected_range":[0.0006,0.0008]}
+{"id":"decay_half","type":"decay","initial_strength":0.5,"days_elapsed":30,"access_count":0,"expected_range":[0.27,0.28]}
+{"id":"decay_zero","type":"decay","initial_strength":0.0,"days_elapsed":100,"access_count":0,"expected_range":[0.0,0.0]}
+
+# ═══ 强化测试（FSRS 风格：reinforce 返回 1.0，增益在 decay_rate）═══
+{"id":"reinforce_from_05","type":"reinforce","initial_strength":0.5,"days_elapsed":1,"access_count":5,"expected_range":[1.0,1.0]}
+{"id":"reinforce_from_08","type":"reinforce","initial_strength":0.8,"days_elapsed":1,"access_count":3,"expected_range":[1.0,1.0]}
+{"id":"reinforce_saturation","type":"reinforce","initial_strength":0.99,"days_elapsed":0,"access_count":10,"expected_range":[0.99,1.0]}
+{"id":"reinforce_from_low","type":"reinforce","initial_strength":0.1,"days_elapsed":1,"access_count":2,"expected_range":[1.0,1.0]}
+
+# ═══ 综合衰减+强化 ═══
+{"id":"combo_decay_reinforce","type":"decay","initial_strength":1.0,"days_elapsed":14,"access_count":0,"expected_range":[0.75,0.76]}
+{"id":"combo_frequent_use","type":"decay","initial_strength":0.5,"days_elapsed":2,"access_count":0,"expected_range":[0.48,0.50]}
+
+# ═══ 动态阈值 ═══
+{"id":"threshold_uniform","type":"threshold","initial_strength":0.5,"days_elapsed":0,"access_count":0,"expected_range":[0.4,0.6],"expected_layer":"L2"}
+{"id":"threshold_top","type":"threshold","initial_strength":0.95,"days_elapsed":0,"access_count":0,"expected_range":[0.9,1.0],"expected_layer":"L1"}
+{"id":"threshold_bottom","type":"threshold","initial_strength":0.005,"days_elapsed":0,"access_count":0,"expected_range":[0.0,0.01],"expected_layer":"COLD"}
