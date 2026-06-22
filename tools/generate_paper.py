@@ -359,20 +359,31 @@ doc.add_heading('4  实验评估', level=1)
 
 doc.add_heading('4.1  强度模型评测', level=2)
 
-add_body('构建了 16 个测试用例，覆盖衰减（7 个）、强化（4 个）、综合（2 个）和动态阈值（3 个）。'
-         '衰减测试通过率 100%，验证了指数衰减公式在 1 至 365 天各时间尺度下的正确性。'
-         '强化测试验证了间隔效应因子的预期行为：复习间隔越大，衰减率降低越多。'
+add_body('构建了 16 个测试用例，覆盖衰减（9 个）、强化（4 个）和动态阈值（3 个）。'
+         '评测结果：全部 16 个用例通过，准确率 100%。'
+         '衰减测试验证了指数衰减公式在 1 至 365 天各时间尺度下的正确性；'
+         '强化测试验证了间隔效应因子的预期行为——复习间隔越大，衰减率降低越多；'
          '动态阈值测试覆盖标准分布、极小样本和极端分布场景。')
 
-doc.add_heading('4.2  检索评测', level=2)
+doc.add_heading('4.2  抽取评测', level=2)
 
-add_body('检索评测使用 18+ 个测试用例，指标包括 Recall@k、Precision@k、MRR 和 NDCG。'
-         'Recall@k ≥ 0.6，Forbidden Hit Rate ≤ 0.2，验证了混合检索的有效性和作用域隔离的正确性。')
+add_body('构建了 32 个 LLM 记忆抽取用例，覆盖身份存储、偏好提取、项目依赖、'
+         '纠正冲突、临时信息过滤和删除请求六类场景。'
+         '使用 Mock LLM 评测框架，准确率 100%（32/32）。')
 
-doc.add_heading('4.3  嵌入质量评测', level=2)
+doc.add_heading('4.3  检索与端到端评测', level=2)
 
-add_body('测试 BGE-large-zh-v1.5 在同义词召回、改写召回和跨语言召回三个维度的表现。'
-         '实验表明该模型在中文语义匹配上表现优异，满足 MemBrain 的检索精度需求。')
+add_body('检索评测包含 19 个用例，测试项目依赖变更（Supersede 链）、用户偏好、'
+         '跨项目隔离、无关查询过滤等场景。'
+         '端到端评测包含 10 个历史对话序列，模拟多轮 Agent 交互后验证记忆提取和检索。'
+         '两项评测依赖本地 BGE 嵌入模型，在完整安装环境下通过。')
+
+doc.add_heading('4.4  代码测试覆盖', level=2)
+
+add_body('项目维护 29 个可执行测试用例（不含需 GPU/嵌入模型的端到端测试），'
+         '覆盖强度模型、进化引擎、LLM 提取器、评测数据加载四个模块。'
+         '当前通过率 27/29（93.1%），2 个未通过用例系测试环境缺少 sentence-transformers 依赖，'
+         '非代码逻辑缺陷。')
 
 doc.add_page_break()
 
@@ -455,6 +466,6 @@ def _fix_all_fonts(document):
 
 # ── 保存 ──────────────────────────────────────────────────
 _fix_all_fonts(doc)
-output = os.path.expanduser('~/Desktop/MemBrain_v2.docx')
+output = os.path.expanduser('~/Desktop/MemBrain_v3.docx')
 doc.save(output)
 print(f'已生成: {output}')
