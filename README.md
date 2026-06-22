@@ -147,4 +147,4 @@ membrain eval-all                         # 完整评测
 
 ## 许可
 
-MIT
+GPL v3
