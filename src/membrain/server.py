@@ -630,10 +630,11 @@ refreshAll().catch(e=>alert(e.message));
 
 
 def run_server(db_path: str | Path, host: str = "127.0.0.1", port: int = 8765, api_key: str | None = None) -> None:
+    print("MemBrain initializing (loading embedding model, this may take a while on first run)...", flush=True)
     handler_cls, cleanup = create_handler(db_path, api_key=api_key)
     server = HTTPServer((host, port), handler_cls)
+    print(f"MemBrain ready, listening on http://{host}:{port}", flush=True)
     try:
-        print(f"MemBrain sidecar listening on http://{host}:{port}")
         server.serve_forever()
     finally:
         cleanup()
