@@ -1,4 +1,4 @@
-# MemBrain — LLM Agent 记忆引擎
+#  MemBrain — LLM Agent 记忆引擎
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-blue" alt="Python">
