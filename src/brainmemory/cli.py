@@ -176,19 +176,27 @@ def run_uninstall(db_path: str) -> None:
 
     print("=== BrainMemory 卸载 ===\n")
 
-    # 1) 杀 sidecar 进程
+    # 1) 杀 sidecar 进程（通过端口 8765 定位，只杀 sidecar 不影响其他）
     killed = False
     try:
         if sys.platform == "win32":
-            result = subprocess.run(
-                ["taskkill", "/F", "/IM", "python.exe"],
-                capture_output=True, text=True,
+            # 找到占用 8765 端口的 PID
+            netstat_result = subprocess.run(
+                ["netstat", "-ano"], capture_output=True, text=True,
             )
-            # 只报告，不强制要求成功（可能没有 sidecar 在跑）
-            if result.returncode == 0:
-                killed = True
-                print("[OK] sidecar 进程已终止")
-            else:
+            for line in netstat_result.stdout.splitlines():
+                if ":8765" in line and "LISTENING" in line:
+                    parts = line.strip().split()
+                    pid = parts[-1]
+                    if pid.isdigit():
+                        subprocess.run(
+                            ["taskkill", "/F", "/PID", pid],
+                            capture_output=True,
+                        )
+                        killed = True
+                        print(f"[OK] sidecar 进程已终止 (PID={pid})")
+                        break
+            if not killed:
                 print("[--] 未找到 sidecar 进程")
         else:
             result = subprocess.run(
