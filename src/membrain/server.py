@@ -649,7 +649,7 @@ def run_server(db_path: str | Path, host: str = "127.0.0.1", port: int = 8765, a
     def _spin() -> None:
         i = 0
         while not stop.is_set():
-            sys.stdout.write(f"\r  {frames[i % 4]} 正在加载模型...")
+            sys.stdout.write(f"\r  {frames[i % 4]} Loading model...")
             sys.stdout.flush()
             stop.wait(0.15)
             i += 1
@@ -660,7 +660,7 @@ def run_server(db_path: str | Path, host: str = "127.0.0.1", port: int = 8765, a
     server = None
 
     try:
-        sys.stdout.write("\r  ━ 正在加载模型...")
+        sys.stdout.write("\r  ━ Loading model...")
         sys.stdout.flush()
         spinner.start()
 
@@ -669,13 +669,13 @@ def run_server(db_path: str | Path, host: str = "127.0.0.1", port: int = 8765, a
         spinner.join(timeout=0.5)
 
         server = HTTPServer((host, port), handler_cls)
-        sys.stdout.write(f"\r  ✔ MemBrain 启动成功  →  http://{host}:{port}/admin\n")
+        sys.stdout.write(f"\r  ✔ MemBrain ready  →  http://{host}:{port}/admin\n")
         sys.stdout.flush()
         server.serve_forever()
     except Exception:
         stop.set()
         spinner.join(timeout=0.5)
-        sys.stdout.write("\r  ✖ 启动失败\n")
+        sys.stdout.write("\r  ✖ Startup failed\n")
         sys.stdout.flush()
         raise
     finally:
