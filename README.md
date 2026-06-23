@@ -16,10 +16,12 @@
 pip install git+https://github.com/w3743/BrainMemory.git
 
 # 2. 启动（首次运行自动下载 BGE 模型，约 1.3GB）
-brainmemory serve
+python -m brainmemory.cli serve
 
 # 3. 浏览器打开 Web 控制台
 # http://127.0.0.1:8765/admin
+
+# 如果 brainmemory 命令不可用，始终可以用 python -m brainmemory.cli
 ```
 
 > 首次运行时 `SentenceTransformer` 会自动从 HuggingFace 下载 `bge-large-zh-v1.5` 模型到本地缓存。如需离线使用，可提前下载模型目录并设置 `BRAINMEMORY_EMBEDDING_MODEL` 环境变量指向该目录。
@@ -141,14 +143,14 @@ pi 中的命令：
 ## 命令行
 
 ```bash
-brainmemory serve                           # 启动 Sidecar + Web 控制台
-brainmemory add "内容" --project demo        # 手动存入记忆
-brainmemory search "查询" --project demo     # 检索记忆
-brainmemory sleep                            # 触发睡眠整理
-brainmemory health                           # 健康报告
-brainmemory demo                             # 运行演示
-brainmemory uninstall --yes                  # 完全卸载（删数据+扩展+停服务）
-brainmemory eval-all                         # 完整评测
+python -m brainmemory.cli serve                           # 启动 Sidecar + Web 控制台
+python -m brainmemory.cli add "内容" --project demo        # 手动存入记忆
+python -m brainmemory.cli search "查询" --project demo     # 检索记忆
+python -m brainmemory.cli sleep                            # 触发睡眠整理
+python -m brainmemory.cli health                           # 健康报告
+python -m brainmemory.cli demo                             # 运行演示
+python -m brainmemory.cli uninstall --yes                  # 完全卸载（删数据+扩展+停服务）
+python -m brainmemory.cli eval-all                         # 完整评测
 ```
 
 ---

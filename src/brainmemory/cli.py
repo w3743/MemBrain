@@ -112,11 +112,11 @@ def _pip_uninstall_brainmemory() -> None:
         capture_output=True, text=True,
     )
     if result.returncode == 0:
-        print("✅ pip uninstall brainmemory 完成")
+        print("[OK] pip uninstall brainmemory 完成")
         return
 
     # pip uninstall 失败，手动清理残留（editable 安装等）
-    print("🔧 常规卸载失败，深度清理残留...")
+    print("[..] 常规卸载失败，深度清理残留...")
     cleaned = False
 
     for sp in site.getsitepackages():
@@ -128,27 +128,27 @@ def _pip_uninstall_brainmemory() -> None:
         pkg = sp / "brainmemory"
         if pkg.is_dir():
             shutil.rmtree(pkg, ignore_errors=True)
-            print(f"  ✅ 已删除 {pkg}")
+            print(f"  [OK] 已删除 {pkg}")
             cleaned = True
 
         # 清理 dist-info / egg-info
         for pattern in ["brainmemory-*.dist-info", "brainmemory-*.egg-info"]:
             for d in sp.glob(pattern):
                 shutil.rmtree(d, ignore_errors=True)
-                print(f"  ✅ 已删除 {d}")
+                print(f"  [OK] 已删除 {d}")
                 cleaned = True
 
         # 清理 editable 安装的 .pth 文件
         for pth in sp.glob("__editable__.brainmemory-*.pth"):
             pth.unlink(missing_ok=True)
-            print(f"  ✅ 已删除 {pth}")
+            print(f"  [OK] 已删除 {pth}")
             cleaned = True
 
         # 清理 .egg-link（旧版 editable）
         egg = sp / "brainmemory.egg-link"
         if egg.exists():
             egg.unlink()
-            print(f"  ✅ 已删除 {egg}")
+            print(f"  [OK] 已删除 {egg}")
             cleaned = True
 
     # 清理 Scripts 中的 brainmemory.exe
@@ -156,13 +156,13 @@ def _pip_uninstall_brainmemory() -> None:
     for exe in scripts.glob("brainmemory*"):
         if exe.is_file():
             exe.unlink(missing_ok=True)
-            print(f"  ✅ 已删除 {exe}")
+            print(f"  [OK] 已删除 {exe}")
             cleaned = True
 
     if cleaned:
-        print("✅ 所有残留已清理")
+        print("[OK] 所有残留已清理")
     else:
-        print("ℹ️ 未找到残留，可能已卸载")
+        print("[--] 未找到残留，可能已卸载")
 
 
 def run_uninstall(db_path: str) -> None:
@@ -181,14 +181,15 @@ def run_uninstall(db_path: str) -> None:
     try:
         if sys.platform == "win32":
             result = subprocess.run(
-                ["taskkill", "/F", "/IM", "python.exe", "/FI", "WINDOWTITLE eq brainmemory*"],
+                ["taskkill", "/F", "/IM", "python.exe"],
                 capture_output=True, text=True,
             )
+            # 只报告，不强制要求成功（可能没有 sidecar 在跑）
             if result.returncode == 0:
                 killed = True
-                print("✅ sidecar 进程已终止")
+                print("[OK] sidecar 进程已终止")
             else:
-                print("ℹ️ 未找到 sidecar 进程")
+                print("[--] 未找到 sidecar 进程")
         else:
             result = subprocess.run(
                 ["pkill", "-f", "brainmemory.cli serve"],
@@ -196,31 +197,31 @@ def run_uninstall(db_path: str) -> None:
             )
             if result.returncode == 0:
                 killed = True
-                print("✅ sidecar 进程已终止")
+                print("[OK] sidecar 进程已终止")
             else:
-                print("ℹ️ 未找到 sidecar 进程")
+                print("[--] 未找到 sidecar 进程")
     except Exception as e:
-        print(f"⚠️ 杀进程失败: {e}")
+        print(f"[!!] 杀进程失败: {e}")
 
     # 2) 删数据库文件（含 WAL/SHM）
     for suffix in ["", "-wal", "-shm"]:
         f = Path(str(db) + suffix)
         if f.exists():
             f.unlink()
-            print(f"✅ 已删除 {f}")
+            print(f"[OK] 已删除 {f}")
     if not any((Path(str(db) + s)).exists() for s in ["", "-wal", "-shm"]):
         if not db.exists():
-            print("ℹ️ 数据库文件不存在（可能已删除）")
+            print("[--] 数据库文件不存在（可能已删除）")
 
     # 3) 删 pi 扩展文件
     if ext.exists():
         ext.unlink()
-        print(f"✅ 已删除扩展 {ext}")
+        print(f"[OK] 已删除扩展 {ext}")
     else:
-        print(f"ℹ️ 扩展文件不存在 {ext}")
+        print(f"[--] 扩展文件不存在 {ext}")
 
     # 4) 卸载 Python 包（处理 pip 安装和 editable 安装）
-    print(f"\n📦 卸载 Python 包...")
+    print(f"\n[..] 卸载 Python 包...")
     _pip_uninstall_brainmemory()
     print(f"\n=== 卸载完成 ===")
 
