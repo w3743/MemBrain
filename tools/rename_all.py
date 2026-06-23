@@ -1,7 +1,7 @@
 """批量替换项目中所有命名引用。"""
 import os, re
 
-BASE = r'C:\Users\wangj\Desktop\1'
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 替换规则：(模式, 替换为)，按顺序应用
 RULES = [
