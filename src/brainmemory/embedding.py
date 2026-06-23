@@ -124,7 +124,7 @@ def _resolve_local_model_path(value: str | None = None) -> Path | str:
     # pip install: no project models/ directory, use HF hub auto-download
     print(f"[brainmemory] Model not found at {PROJECT_LOCAL_MODEL}, "
           f"using {DEFAULT_LOCAL_MODEL_NAME} (will download on first use)", flush=True)
-    return Path(DEFAULT_LOCAL_MODEL_NAME)
+    return DEFAULT_LOCAL_MODEL_NAME  # HF hub ID string, not a Path (avoids Windows path conversion)
 
 
 def cosine(a: list[float], b: list[float]) -> float:
