@@ -136,7 +136,8 @@ pi 中的命令：
 - `/remember <内容>` — 手动存入记忆
 - `/bm-health` — 查看记忆健康报告
 - `/bm-search <查询>` — 搜索记忆库
-- `/bm-uninstall confirm` — 完全卸载
+
+卸载请使用：`brainmemory uninstall --yes`
 
 ---
 
