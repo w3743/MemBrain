@@ -15,14 +15,14 @@
 # 1. 安装
 pip install git+https://github.com/w3743/MemBrain.git
 
-# 2. 启动（需要本地 BGE embedding 依赖与模型）
+# 2. 启动（首次运行自动下载 BGE 模型，约 1.3GB）
 membrain serve
 
 # 3. 浏览器打开 Web 控制台
 # http://127.0.0.1:8765/admin
 ```
 
-> 本项目运行时统一使用本地 `bge-large-zh-v1.5`。请安装 `sentence-transformers` 并准备本地模型目录；缺少依赖或模型时应修复环境，不会静默降级到关键词/哈希检索。
+> 首次运行时 `SentenceTransformer` 会自动从 HuggingFace 下载 `bge-large-zh-v1.5` 模型到本地缓存。如需离线使用，可提前下载模型目录并设置 `CSM_EMBEDDING_MODEL` 环境变量指向该目录。
 
 ---
 
@@ -95,11 +95,10 @@ score = 语义相似度 × 当前强度 R × (1 + boost)
 pip install git+https://github.com/w3743/MemBrain.git
 ```
 
-本地开发时建议显式指定模型：
+如需指定本地模型路径（离线或自定义）：
 
 ```bash
-set CSM_EMBEDDING_BACKEND=local
-set CSM_EMBEDDING_MODEL=C:\Users\wangj\Desktop\1\models\bge-large-zh-v1.5
+set CSM_EMBEDDING_MODEL=/path/to/bge-large-zh-v1.5
 ```
 
 ### 配置 DeepSeek

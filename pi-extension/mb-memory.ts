@@ -166,6 +166,7 @@ function spawnSidecar(): ChildProcess {
       CSM_HOST: CSM_HOST,
       CSM_PORT: String(CSM_PORT),
       CSM_EMBEDDING_BACKEND: "local",
+      CSM_EMBEDDING_MODEL: CSM_EMBEDDING_MODEL,
       PYTHONUNBUFFERED: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
