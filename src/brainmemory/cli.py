@@ -100,8 +100,6 @@ def print_json(data: object) -> None:
 
 def run_uninstall(db_path: str) -> None:
     """完全卸载 BrainMemory：杀 sidecar、删数据库、删扩展。"""
-    import shutil
-    import signal
     import subprocess
     import sys
 
@@ -154,11 +152,21 @@ def run_uninstall(db_path: str) -> None:
     else:
         print(f"ℹ️ 扩展文件不存在 {ext}")
 
-    # 4) 提示
-    print(f"\n📦 手动卸载 Python 包：")
-    print(f"   pip uninstall brainmemory -y")
-    print(f"\n💡 源码目录可自行删除：")
-    print(f"   {Path(__file__).resolve().parent.parent.parent}")
+    # 4) 卸载 Python 包
+    print(f"\n📦 卸载 Python 包...")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "uninstall", "brainmemory", "-y"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            print("✅ pip uninstall brainmemory 完成")
+        else:
+            print(f"⚠️ pip 卸载失败（可能是 editable 安装），请手动处理：")
+            print(f"   pip uninstall brainmemory -y")
+    except Exception:
+        print(f"⚠️ 无法自动卸载 Python 包，请手动执行：")
+        print(f"   pip uninstall brainmemory -y")
     print(f"\n=== 卸载完成 ===")
 
 
