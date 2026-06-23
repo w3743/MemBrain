@@ -4,7 +4,7 @@
   "description": "MemBrain — LLM Agent memory engine with spacing-effect-driven strength model for pi coding agent",
   "keywords": ["pi-package", "memory", "llm", "agent", "membrain"],
   "author": "MemBrain Project",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "pi": {
     "extensions": ["./pi-extension/mb-memory.ts"],
     "image": "https://raw.githubusercontent.com/xxx/membrain/main/docs/screenshot.png"
