@@ -42,19 +42,6 @@ python -m brainmemory.cli serve
 
 如果 `brainmemory` 命令不在 PATH 中，始终可以使用 `python -m brainmemory.cli`。
 
-### 核心能力
-
-| 能力 | 说明 |
-|---|---|
-| 非线性连续衰减 | 记忆强度使用 0–1 连续值；弱记忆衰减更快 |
-| 人脑式间隔强化 | 密集重复的长期收益较小，间隔后成功回忆显著提高稳定性 |
-| 真实使用反馈 | 被注入不等于被使用；只有回答确实引用记忆才强化 |
-| 混合检索 | BGE 稠密向量与 FTS5/BM25 关键词信号结合 |
-| 向量化计算 | 内存缓存嵌入，并使用 NumPy 批量点积计算相似度 |
-| LLM 写入仲裁 | DeepSeek 判断新增、更新、替换、归档、删除或忽略 |
-| 自动整理 | 强度低于 0.2、年龄超过 7 天且低效用时归档；被替换的旧记录删除 |
-| 多框架接入 | HTTP Sidecar、pi Agent Hook、OpenClaw、Hermes |
-| Web 控制台 | 查看、检索、编辑、强化、归档和删除记忆 |
 
 ### 记忆模型
 
@@ -233,19 +220,7 @@ python -m brainmemory.cli serve
 
 The first run downloads `BAAI/bge-large-zh-v1.5` (about 1.3 GB). Set `BRAINMEMORY_EMBEDDING_MODEL` to a local model directory for offline use.
 
-### Highlights
 
-| Feature | Description |
-|---|---|
-| Nonlinear continuous decay | Memory strength is continuous from 0 to 1; weak memories decay faster |
-| Human-inspired spacing effect | Massed repetition gives a small stability gain; successful spaced recall gives a larger one |
-| Evidence-based reinforcement | Injection alone does not reinforce a memory; the answer must actually use it |
-| Hybrid retrieval | Dense BGE similarity combined with FTS5/BM25 lexical evidence |
-| Vectorized scoring | Embeddings are cached in memory and scored with NumPy batch dot products |
-| LLM write arbitration | DeepSeek decides whether to add, update, supersede, archive, delete, or ignore |
-| Automatic consolidation | Low-utility memories below `R=0.2` and older than seven days are archived; superseded records are deleted immediately |
-| Agent integrations | HTTP Sidecar, pi hooks, OpenClaw, and Hermes facades |
-| Web console | Inspect, search, edit, reinforce, archive, and delete memories |
 
 ### Memory dynamics
 
