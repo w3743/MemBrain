@@ -27,7 +27,7 @@ def test_piagent_hook_injects_and_commits_memory(tmp_path) -> None:
 
         state["brainmemory_explicit_memories"] = ["用户希望回答先给结论，再给必要步骤。"]
         final_state = hook.agent_end("安装依赖用什么命令？", "使用 bun install。", state)
-        assert "UPDATE" in final_state["brainmemory_write_plan"]
+        assert any(item["action"] == "used" for item in final_state["brainmemory_feedback"])
         assert "ADD" in final_state["brainmemory_write_plan"]
         assert final_state["brainmemory_committed_ids"]
         assert final_state["csm_write_plan"] == final_state["brainmemory_write_plan"]
@@ -64,7 +64,7 @@ def test_piagent_hook_accepts_legacy_csm_memory_ids(tmp_path) -> None:
             {"user_id": "u1", "project_id": "demo", "csm_memory_ids": [memory.id]},
         )
         updated = engine.store.get(memory.id or 0)
-        assert "UPDATE" in state["brainmemory_write_plan"]
+        assert any(item["action"] == "used" for item in state["brainmemory_feedback"])
         assert updated is not None
         assert updated.access_count >= 1
     finally:
@@ -108,7 +108,7 @@ def test_openclaw_post_run_reinforces_used_memory(tmp_path) -> None:
             "memory_ids": [memory.id],
         })
         updated = engine.store.get(memory.id or 0)
-        assert "UPDATE" in post["write_plan"]
+        assert any(item["action"] == "used" for item in post["feedback"])
         assert updated is not None
         assert updated.access_count >= 1
     finally:
@@ -158,7 +158,7 @@ def test_injected_memory_is_only_reinforced_when_answer_uses_it(tmp_path) -> Non
         adapter.commit(used_plan, AgentScope(project_id="demo"))
         used = engine.store.get(injected.id or 0)
 
-        assert MemoryOp.UPDATE in [write.op for write in used_plan.writes]
+        assert any(item["action"] == "used" for item in used_plan.feedback or [])
         assert used is not None and used.access_count == 1
     finally:
         engine.close()

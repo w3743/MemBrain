@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .engine import BrainMemoryEngine
-from .evolution import detect_feedback
 from .extractor import MemoryExtractor, build_default_extractor
 from .embedding import tokenize
 from .models import Memory, MemoryOp, MemoryWrite, MemoryWritePlan
@@ -43,6 +42,7 @@ class AgentEvent:
     tool_results: list[str] = field(default_factory=list)
     explicit_memories: list[str] = field(default_factory=list)
     used_memory_ids: list[int] = field(default_factory=list)
+    explicit_used_memory_ids: list[int] = field(default_factory=list)
     scope: AgentScope = field(default_factory=AgentScope)
 
 
@@ -71,12 +71,9 @@ class BrainMemoryAdapter:
         ids: list[int] = []
         items: list[dict[str, Any]] = []
         used_chars = 0
-        top_score = results[0].final_score if results else 0.0
         for result in results:
             memory = result.memory
             if memory.id is None:
-                continue
-            if top_score > 0 and result.final_score < top_score * 0.75:
                 continue
             prompt_text = _prompt_memory_text(memory)
             line = f"- [#{memory.id} R={result.current_strength:.3f}] {prompt_text}"
@@ -85,12 +82,19 @@ class BrainMemoryAdapter:
             used_chars += len(line)
             lines.append(line)
             ids.append(memory.id)
+            memory.exposure_count += 1
+            self.engine.store.update(memory)
             items.append({
                 "id": memory.id,
                 "score": round(result.final_score, 4),
                 "semantic_similarity": round(result.semantic_similarity, 4),
                 "keyword_score": round(result.keyword_score, 4),
                 "strength": round(result.current_strength, 4),
+                "stability": round(memory.stability, 4),
+                "difficulty": round(memory.difficulty, 4),
+                "utility": round(memory.utility, 4),
+                "trust": round(memory.trust_mean, 4),
+                "interference": round(result.interference, 4),
                 "content": memory.content,
                 "summary": memory.summary,
                 "tags": memory.tags,
@@ -104,8 +108,6 @@ class BrainMemoryAdapter:
         is_correction = _looks_like_correction(event.user_input)
         is_delete_request = _looks_like_delete_request(event.user_input)
         feedback_memories = _memories_for_feedback(self.engine, event.used_memory_ids, event.scope)
-        feedback = detect_feedback(event.user_input, event.agent_output, feedback_memories)
-        feedback_by_id = {int(item["memory_id"]): item["action"] for item in feedback}
         if not is_delete_request:
             for memory_id in event.used_memory_ids:
                 memory = self.engine.store.get(memory_id)
@@ -115,8 +117,6 @@ class BrainMemoryAdapter:
                     if not _correction_applies_to_memory(event.user_input, memory):
                         continue
                     writes.append(MemoryWrite(op=MemoryOp.SUPERSEDE, target_id=memory_id, content=event.user_input, summary=event.user_input[:120]))
-                elif feedback_by_id.get(memory_id) == "used":
-                    writes.append(MemoryWrite(op=MemoryOp.UPDATE, target_id=memory_id))
         for content in event.explicit_memories:
             clean = content.strip()
             if clean:
@@ -139,19 +139,30 @@ class BrainMemoryAdapter:
         writes.extend(w for w in extracted.writes if w.op != MemoryOp.NOOP)
 
         # 自动反馈：检测本条对话对检索记忆的影响
+        feedback: list[dict[str, Any]] = []
         try:
             self.engine.evolution.process_turn(
                 event.user_input,
                 event.agent_output,
                 feedback_memories,
+                explicit_used_ids=event.explicit_used_memory_ids,
             )
+            feedback = self.engine.evolution.last_feedback
         except Exception:
             pass  # 反馈检测失败不阻塞主流程
 
         writes = _normalize_writes(writes)
         if not writes:
-            return MemoryWritePlan(writes=[MemoryWrite(op=MemoryOp.NOOP)], rationale="No reusable memory found.")
-        return MemoryWritePlan(writes=writes, rationale="Reinforce used + extracted memories.")
+            return MemoryWritePlan(
+                writes=[MemoryWrite(op=MemoryOp.NOOP)],
+                rationale="No reusable memory found.",
+                feedback=feedback,
+            )
+        return MemoryWritePlan(
+            writes=writes,
+            rationale="Evidence feedback + extracted memories.",
+            feedback=feedback,
+        )
 
     def commit(self, plan: MemoryWritePlan, scope: AgentScope) -> list[Memory]:
         committed: list[Memory] = []
@@ -198,6 +209,7 @@ class PiAgentMemoryHook:
             user_input=user_input,
             agent_output=agent_output,
             used_memory_ids=list(state.get("brainmemory_memory_ids", state.get("csm_memory_ids", []))),
+            explicit_used_memory_ids=list(state.get("brainmemory_used_memory_ids", [])),
             explicit_memories=list(state.get("brainmemory_explicit_memories", state.get("csm_explicit_memories", []))),
             scope=scope,
         )
@@ -208,6 +220,7 @@ class PiAgentMemoryHook:
         committed_ids = [m.id for m in committed]
         state["brainmemory_write_plan"] = write_plan
         state["brainmemory_committed_ids"] = committed_ids
+        state["brainmemory_feedback"] = plan.feedback or []
         state["csm_write_plan"] = write_plan
         state["csm_committed_ids"] = committed_ids
         return state
@@ -231,11 +244,17 @@ class OpenClawMemorySidecar:
             tool_results=[str(item) for item in payload.get("tool_results", [])],
             explicit_memories=[str(item) for item in payload.get("explicit_memories", [])],
             used_memory_ids=[int(item) for item in payload.get("memory_ids", [])],
+            explicit_used_memory_ids=[int(item) for item in payload.get("used_memory_ids", [])],
             scope=scope,
         )
         plan = self.adapter.observe(event)
         committed = self.adapter.commit(plan, scope)
-        return {"write_plan": [w.op.value for w in plan.writes], "committed_ids": [m.id for m in committed], "rationale": plan.rationale}
+        return {
+            "write_plan": [w.op.value for w in plan.writes],
+            "committed_ids": [m.id for m in committed],
+            "rationale": plan.rationale,
+            "feedback": plan.feedback or [],
+        }
 
 
 class HermesMemoryProvider:

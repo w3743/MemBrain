@@ -1,11 +1,12 @@
 import os
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 
 from brainmemory.engine import BrainMemoryEngine
 from brainmemory.embedding import build_embedding_backend_from_env, embedding_config_from_env
-from brainmemory.models import MemoryOp, MemoryStatus
+from brainmemory.models import MemoryOp, MemoryStatus, utc_now
 
 
 class ConstantEmbeddingBackend:
@@ -157,7 +158,14 @@ def test_sleep_archives_low_value_cold_memory(tmp_path) -> None:
         # 创建一个极低强度的记忆
         memory = engine.add_memory("一次性临时邮箱 test@example.com。", project_id="demo", tags="临时")
         memory.strength = 0.0001
+        memory.utility = 0.2
+        memory.created_at = utc_now() - timedelta(days=10)
         engine.store.update(memory)
+        engine.store.conn.execute(
+            "UPDATE memories SET created_at=? WHERE id=?",
+            (memory.created_at.isoformat(), memory.id),
+        )
+        engine.store.conn.commit()
 
         report = engine.sleep_consolidate()
         assert report["archived"] >= 1

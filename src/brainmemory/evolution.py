@@ -10,11 +10,12 @@
 from __future__ import annotations
 
 import re
+import math
 from typing import Any
 
 from .embedding import tokenize
 from .models import Memory, MemoryStatus, MemoryWrite, MemoryWritePlan, utc_now
-from .strength import current_strength
+from .strength import current_strength, reinforce, stability_to_decay
 
 
 # ── 自适应参数边界 ──────────────────────────────────────────
@@ -41,10 +42,12 @@ def detect_feedback(
     user_input: str,
     agent_output: str,
     retrieved_memories: list[dict[str, Any]],
+    explicit_used_ids: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """自动分析本轮对话中对每条已检索记忆的反馈。
 
-    返回列表，每项：{memory_id, action: used|ignored|corrected, evidence}
+    返回概率化反馈：action 可为 used/ignored/corrected/uncertain，并包含
+    p_use、p_ignore、p_correct、confidence 与 evidence。
     """
     if not retrieved_memories:
         return []
@@ -54,6 +57,7 @@ def detect_feedback(
     agent_lower = agent_output.lower()
 
     was_correction = bool(CORRECTION_RE.search(user_input))
+    explicit = set(explicit_used_ids or [])
 
     for mem in retrieved_memories:
         mid = mem.get("id")
@@ -67,19 +71,55 @@ def detect_feedback(
         tokens = _feedback_tokens(content)
         agent_tokens = _feedback_tokens(agent_lower)
 
-        # 检测是否被 LLM 回复引用
         overlap = tokens & agent_tokens
         overlap_ratio = len(overlap) / max(1, min(len(tokens), len(agent_tokens)))
-        used = len(overlap) >= 2 or (len(overlap) >= 1 and overlap_ratio >= 0.25)
-
-        if was_correction and _content_contradicts(user_lower, content):
-            feedback.append({"memory_id": mid, "action": "corrected", "evidence": "user correction"})
-        elif used:
-            feedback.append({"memory_id": mid, "action": "used", "evidence": f"overlap={len(overlap)}"})
+        jaccard = len(overlap) / max(1, len(tokens | agent_tokens))
+        entailment_proxy = min(1.0, overlap_ratio * 2.0) if len(overlap) >= 2 else 0.0
+        if int(mid) in explicit:
+            p_use = 0.98
+            evidence = "explicit memory id"
         else:
-            feedback.append({"memory_id": mid, "action": "ignored", "evidence": "no overlap"})
+            p_use = _sigmoid(-2.5 + 3.0 * entailment_proxy + 1.5 * overlap_ratio + jaccard)
+            evidence = f"overlap={len(overlap)},ratio={overlap_ratio:.3f}"
+
+        contradicts = was_correction and _content_contradicts(user_lower, content)
+        p_correct = 0.95 if contradicts else 0.0
+        p_ignore = max(0.0, (1.0 - p_use) * (1.0 - p_correct))
+        confidence = _feedback_confidence(p_use, p_ignore, p_correct)
+
+        if p_correct >= 0.7:
+            action = "corrected"
+            evidence = "topic-matched user correction"
+        elif p_use >= 0.75:
+            action = "used"
+        elif p_ignore >= 0.75:
+            action = "ignored"
+        else:
+            action = "uncertain"
+
+        feedback.append({
+            "memory_id": int(mid),
+            "action": action,
+            "p_use": p_use,
+            "p_ignore": p_ignore,
+            "p_correct": p_correct,
+            "confidence": confidence,
+            "evidence": evidence,
+        })
 
     return feedback
+
+
+def _sigmoid(value: float) -> float:
+    return 1.0 / (1.0 + math.exp(-value))
+
+
+def _feedback_confidence(p_use: float, p_ignore: float, p_correct: float) -> float:
+    values = [max(0.0, p_use), max(0.0, p_ignore), max(0.0, p_correct)]
+    total = sum(values) or 1.0
+    probabilities = [value / total for value in values]
+    entropy = -sum(p * math.log(p) for p in probabilities if p > 0)
+    return max(0.0, min(1.0, 1.0 - entropy / math.log(3)))
 
 
 def _content_contradicts(user_text: str, memory_content: str) -> bool:
@@ -126,7 +166,16 @@ def _feedback_tokens(text: str) -> set[str]:
 
 # ── 参数自适应 ─────────────────────────────────────────────
 
-def apply_feedback(memory: Memory, action: str) -> Memory:
+def apply_feedback(
+    memory: Memory,
+    action: str,
+    *,
+    p_use: float | None = None,
+    p_ignore: float | None = None,
+    p_correct: float | None = None,
+    confidence: float = 1.0,
+    now=None,
+) -> Memory:
     """根据反馈调整记忆的自适应参数。
 
     自适应反馈：反馈效果与当前可回忆概率（R）关联。
@@ -134,24 +183,38 @@ def apply_feedback(memory: Memory, action: str) -> Memory:
       - ignored：R 高时被无视 = 确实不相关，降权更多；R 低时被无视 = 可能忘了，温和处理
       - corrected：用户纠正 → 快速衰减
     """
-    R = current_strength(memory)
-
+    p_use = float(action == "used") if p_use is None else p_use
+    p_ignore = float(action == "ignored") if p_ignore is None else p_ignore
+    p_correct = float(action == "corrected") if p_correct is None else p_correct
+    R = current_strength(memory, now=now)
     if action == "used":
-        # boost/trust 由进化管理；decay_rate 由 reinforce() 的间隔效应统一处理，避免重复修改
-        memory.boost = min(BOOST_MAX, memory.boost + 0.05)
-        memory.trust = min(TRUST_MAX, memory.trust + 0.03 * (1.0 - R))
+        memory.boost = min(BOOST_MAX, memory.boost + 0.05 * p_use)
+        memory.trust_alpha += 0.1 * p_use
         memory.verify_count += 1
+        memory.utility = (1.0 - 0.1) * memory.utility + 0.1 * p_use
+        memory.strength = reinforce(memory, now=now, probability=p_use)
+        memory.last_accessed_at = now or utc_now()
+        memory.access_count += 1
 
     elif action == "ignored":
-        penalty = 0.02 * (0.3 + 0.7 * R)
+        penalty = 0.02 * confidence * p_ignore
         memory.boost = max(BOOST_MIN, memory.boost - penalty)
-        memory.decay_rate = min(DECAY_MAX, memory.decay_rate * 1.02)
+        memory.stability /= 1.0 + penalty
+        memory.decay_rate = stability_to_decay(memory.stability)
+        memory.difficulty = min(1.0, memory.difficulty + 0.03 * confidence * p_ignore)
+        memory.utility = max(0.0, 0.9 * memory.utility)
 
     elif action == "corrected":
-        memory.boost = max(BOOST_MIN, memory.boost - 0.2)
-        memory.trust = max(TRUST_MIN, memory.trust * 0.7)
+        memory.boost = max(BOOST_MIN, memory.boost - 0.2 * p_correct)
+        memory.trust_beta += 2.0 * p_correct
         memory.error_count += 1
-        memory.decay_rate = min(DECAY_MAX, memory.decay_rate * 1.5)
+        memory.correction_count += 1
+        memory.stability /= 1.0 + 0.5 * p_correct
+        memory.decay_rate = stability_to_decay(memory.stability)
+        memory.difficulty = min(1.0, memory.difficulty + 0.15 * p_correct)
+        memory.utility = max(0.0, memory.utility - 0.2 * p_correct)
+
+    memory.sync_trust()
 
     return memory
 
@@ -164,19 +227,27 @@ class EvolutionEngine:
     def __init__(self, store: Any = None) -> None:
         self.store = store
         self._cycles: int = 0
+        self.last_feedback: list[dict[str, Any]] = []
 
     def process_turn(
         self,
         user_input: str,
         agent_output: str,
         retrieved_memories: list[dict[str, Any]],
+        explicit_used_ids: list[int] | None = None,
     ) -> list[Memory]:
         """处理一轮对话的反馈，返回被修改的记忆列表。"""
         self._cycles += 1
         if not self.store:
             return []
 
-        feedback = detect_feedback(user_input, agent_output, retrieved_memories)
+        feedback = detect_feedback(
+            user_input,
+            agent_output,
+            retrieved_memories,
+            explicit_used_ids=explicit_used_ids,
+        )
+        self.last_feedback = feedback
         updated: list[Memory] = []
 
         for fb in feedback:
@@ -184,9 +255,27 @@ class EvolutionEngine:
             if memory is None or memory.status != MemoryStatus.ACTIVE:
                 continue
 
-            apply_feedback(memory, fb["action"])
+            apply_feedback(
+                memory,
+                fb["action"],
+                p_use=fb["p_use"],
+                p_ignore=fb["p_ignore"],
+                p_correct=fb["p_correct"],
+                confidence=fb["confidence"],
+            )
             memory.updated_at = utc_now()
             self.store.update(memory)
+            self.store.record_feedback_event(
+                memory.id,
+                fb["action"],
+                fb["p_use"],
+                fb["p_ignore"],
+                fb["p_correct"],
+                fb["confidence"],
+                query=user_input,
+                answer=agent_output,
+                evidence=fb["evidence"],
+            )
             updated.append(memory)
 
         return updated
@@ -211,9 +300,10 @@ class EvolutionEngine:
         if memory is None:
             return None
         memory.verify_count += 1
-        memory.trust = min(TRUST_MAX, memory.trust + 0.05)
-        memory.decay_rate *= 0.9
-        memory.decay_rate = max(DECAY_MIN, memory.decay_rate)
+        memory.trust_alpha += 1.0
+        memory.sync_trust()
+        memory.stability *= 1.1
+        memory.decay_rate = stability_to_decay(memory.stability)
         memory.updated_at = utc_now()
         self.store.update(memory)
         return memory
@@ -229,9 +319,17 @@ def inherit_from(memory: Memory, parent: Memory | None) -> Memory:
     """
     if parent is None:
         return memory
-    memory.trust = (parent.trust + 0.5) / 2     # 新旧平均，不给全额
+    parent.ensure_trust_distribution()
+    memory.trust_alpha = 2.0 + 0.25 * parent.trust_alpha
+    memory.trust_beta = 2.0 + 0.5 * parent.trust_beta
+    memory.sync_trust()
     memory.verify_count = max(0, parent.verify_count - 1)
     memory.error_count = parent.error_count      # 保留错误历史
+    memory.correction_count = parent.correction_count
+    memory.stability = 0.5 * memory.stability + 0.5 * parent.stability
+    memory.decay_rate = stability_to_decay(memory.stability)
+    memory.difficulty = min(1.0, 0.5 * memory.difficulty + 0.5 * parent.difficulty)
+    memory.utility = 0.5 * memory.utility + 0.5 * parent.utility
     memory.boost = max(memory.boost, min(0.2, parent.boost + 0.05))
     if not memory.tags:
         memory.tags = parent.tags

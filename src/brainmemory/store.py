@@ -61,6 +61,13 @@ class MemoryStore:
                 trust REAL NOT NULL DEFAULT 0.5,
                 error_count INTEGER NOT NULL DEFAULT 0,
                 verify_count INTEGER NOT NULL DEFAULT 0,
+                stability REAL NOT NULL DEFAULT 27.4653072167,
+                difficulty REAL NOT NULL DEFAULT 0.5,
+                utility REAL NOT NULL DEFAULT 0.5,
+                trust_alpha REAL NOT NULL DEFAULT 2.0,
+                trust_beta REAL NOT NULL DEFAULT 2.0,
+                exposure_count INTEGER NOT NULL DEFAULT 0,
+                correction_count INTEGER NOT NULL DEFAULT 0,
                 embedding TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -84,9 +91,25 @@ class MemoryStore:
                 value TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS memory_feedback_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                memory_id INTEGER,
+                action TEXT NOT NULL,
+                p_use REAL NOT NULL,
+                p_ignore REAL NOT NULL,
+                p_correct REAL NOT NULL,
+                confidence REAL NOT NULL,
+                query TEXT DEFAULT '',
+                answer TEXT DEFAULT '',
+                evidence TEXT DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_memories_project_status ON memories(project_id, status);
             CREATE INDEX IF NOT EXISTS idx_memories_strength ON memories(strength);
             CREATE INDEX IF NOT EXISTS idx_memories_updated_at ON memories(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_feedback_memory_created
+                ON memory_feedback_events(memory_id, created_at);
         """)
         self.conn.execute("INSERT OR IGNORE INTO memory_meta(key, value) VALUES ('memory_index_version', '0')")
         self.conn.commit()
@@ -100,17 +123,37 @@ class MemoryStore:
             ("trust", "REAL NOT NULL DEFAULT 0.5"),
             ("error_count", "INTEGER NOT NULL DEFAULT 0"),
             ("verify_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("stability", "REAL NOT NULL DEFAULT 27.4653072167"),
+            ("difficulty", "REAL NOT NULL DEFAULT 0.5"),
+            ("utility", "REAL NOT NULL DEFAULT 0.5"),
+            ("trust_alpha", "REAL NOT NULL DEFAULT 2.0"),
+            ("trust_beta", "REAL NOT NULL DEFAULT 2.0"),
+            ("exposure_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("correction_count", "INTEGER NOT NULL DEFAULT 0"),
         ]
         existing = {row["name"] for row in self.conn.execute("PRAGMA table_info(memories)").fetchall()}
+        added: set[str] = set()
         for col, defn in migrations:
             if col not in existing:
                 _validate_identifier(col, "column")
                 self.conn.execute(f"ALTER TABLE memories ADD COLUMN {col} {defn}")
+                added.add(col)
+        if "stability" in added:
+            self.conn.execute(
+                "UPDATE memories SET stability=0.5493061443340549 / "
+                "MAX(0.001, MIN(0.3, decay_rate))"
+            )
+        if "trust_alpha" in added or "trust_beta" in added:
+            self.conn.execute(
+                "UPDATE memories SET trust_alpha=MAX(0.1, trust*4.0), "
+                "trust_beta=MAX(0.1, (1.0-trust)*4.0)"
+            )
         self.conn.commit()
 
     # ── CRUD ──────────────────────────────────────────────────
 
-    def add(self, memory: Memory) -> Memory:
+    def add(self, memory: Memory, *, commit: bool = True) -> Memory:
+        memory.ensure_trust_distribution()
         now = utc_now()
         memory.created_at = memory.created_at or now
         memory.updated_at = memory.updated_at or now
@@ -122,8 +165,10 @@ class MemoryStore:
                 content, summary, strength, access_count, last_accessed_at,
                 status, superseded_by, tags, scope, project_id,
                 sensitivity, decay_rate, boost, trust, error_count, verify_count,
+                stability, difficulty, utility, trust_alpha, trust_beta,
+                exposure_count, correction_count,
                 embedding, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 memory.content,
@@ -142,6 +187,13 @@ class MemoryStore:
                 memory.trust,
                 memory.error_count,
                 memory.verify_count,
+                memory.stability,
+                memory.difficulty,
+                memory.utility,
+                memory.trust_alpha,
+                memory.trust_beta,
+                memory.exposure_count,
+                memory.correction_count,
                 embedding,
                 dt_to_str(memory.created_at),
                 dt_to_str(memory.updated_at),
@@ -150,10 +202,12 @@ class MemoryStore:
         memory.id = int(cur.lastrowid)
         self._sync_fts(memory.id)
         self._bump_index_version()
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return memory
 
     def update(self, memory: Memory) -> Memory:
+        memory.ensure_trust_distribution()
         memory.updated_at = utc_now()
         existing = self.conn.execute(
             "SELECT content, summary, tags, embedding FROM memories WHERE id=?",
@@ -177,6 +231,8 @@ class MemoryStore:
                 last_accessed_at=?, status=?, superseded_by=?, tags=?,
                 scope=?, project_id=?, sensitivity=?,
                 decay_rate=?, boost=?, trust=?, error_count=?, verify_count=?,
+                stability=?, difficulty=?, utility=?, trust_alpha=?, trust_beta=?,
+                exposure_count=?, correction_count=?,
                 embedding=?, updated_at=?
             WHERE id=?
             """,
@@ -187,6 +243,9 @@ class MemoryStore:
                 memory.scope, memory.project_id, memory.sensitivity,
                 memory.decay_rate, memory.boost, memory.trust,
                 memory.error_count, memory.verify_count,
+                memory.stability, memory.difficulty, memory.utility,
+                memory.trust_alpha, memory.trust_beta,
+                memory.exposure_count, memory.correction_count,
                 embedding, dt_to_str(memory.updated_at),
                 memory.id,
             ),
@@ -197,7 +256,7 @@ class MemoryStore:
         self.conn.commit()
         return memory
 
-    def delete(self, memory_id: int) -> bool:
+    def delete(self, memory_id: int, *, commit: bool = True) -> bool:
         row = self.conn.execute("SELECT id FROM memories WHERE id=?", (memory_id,)).fetchone()
         if row is None:
             return False
@@ -205,7 +264,8 @@ class MemoryStore:
         self.conn.execute("DELETE FROM memory_links WHERE source_id=? OR target_id=?", (memory_id, memory_id))
         self.conn.execute("DELETE FROM memories WHERE id=?", (memory_id,))
         self._bump_index_version()
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return True
 
     def get(self, memory_id: int) -> Memory | None:
@@ -278,6 +338,42 @@ class MemoryStore:
             (source_id, target_id, relation, dt_to_str(utc_now())),
         )
         self.conn.commit()
+
+    def record_feedback_event(
+        self,
+        memory_id: int | None,
+        action: str,
+        p_use: float,
+        p_ignore: float,
+        p_correct: float,
+        confidence: float,
+        query: str = "",
+        answer: str = "",
+        evidence: str = "",
+    ) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO memory_feedback_events(
+                memory_id, action, p_use, p_ignore, p_correct,
+                confidence, query, answer, evidence, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                memory_id, action, p_use, p_ignore, p_correct,
+                confidence, query, answer, evidence, dt_to_str(utc_now()),
+            ),
+        )
+        self.conn.commit()
+
+    def feedback_events(self, memory_id: int | None = None) -> list[sqlite3.Row]:
+        if memory_id is None:
+            return self.conn.execute(
+                "SELECT * FROM memory_feedback_events ORDER BY id"
+            ).fetchall()
+        return self.conn.execute(
+            "SELECT * FROM memory_feedback_events WHERE memory_id=? ORDER BY id",
+            (memory_id,),
+        ).fetchall()
 
     def index_version(self) -> int:
         row = self.conn.execute("SELECT value FROM memory_meta WHERE key='memory_index_version'").fetchone()

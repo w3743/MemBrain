@@ -81,6 +81,7 @@ def test_sidecar_health_and_openclaw_flow(tmp_path) -> None:
         assert status == 200
         assert spec["openapi"].startswith("3.")
         assert "/pre_prompt" in spec["paths"]
+        assert "/admin/feedback" in spec["paths"]
         admin_save_props = spec["paths"]["/admin/memory/save"]["post"]["requestBody"]["content"]["application/json"]["schema"]["properties"]
         admin_retrieval_props = spec["paths"]["/admin/retrieval/test"]["post"]["requestBody"]["content"]["application/json"]["schema"]["properties"]
         admin_arbitration_props = spec["paths"]["/admin/arbitration/run"]["post"]["requestBody"]["content"]["application/json"]["schema"]["properties"]
@@ -292,6 +293,10 @@ def test_admin_console_and_core_admin_apis(tmp_path) -> None:
         status, reindex = server.post("/admin/reindex-embeddings", {})
         assert status == 200
         assert reindex["reindexed"] >= 1
+
+        status, feedback = server.post("/admin/feedback", {})
+        assert status == 200
+        assert isinstance(feedback["items"], list)
     finally:
         server.stop()
 

@@ -52,7 +52,7 @@ python -m brainmemory.cli serve
 | 混合检索 | BGE 稠密向量与 FTS5/BM25 关键词信号结合 |
 | 向量化计算 | 内存缓存嵌入，并使用 NumPy 批量点积计算相似度 |
 | LLM 写入仲裁 | DeepSeek 判断新增、更新、替换、归档、删除或忽略 |
-| 自动整理 | 强度低于 0.2 时归档；被替换的旧记录立即物理删除 |
+| 自动整理 | 强度低于 0.2、年龄超过 7 天且低效用时归档；被替换的旧记录立即物理删除 |
 | 多框架接入 | HTTP Sidecar、pi Agent Hook、OpenClaw、Hermes |
 | Web 控制台 | 查看、检索、编辑、强化、归档和删除记忆 |
 
@@ -65,7 +65,7 @@ R(t) = 2 / (1 + (2/s₀ - 1) · e^(2dt))
 ```
 
 - `s₀`：上次访问后的记忆强度。
-- `d`：每条记忆独立学习的衰减率，初始值为 `0.02`。
+- 有效衰减率由稳定性 \(S\)、难度 \(D\) 和相似知识干扰 \(I\) 联合决定。
 - 新记忆初始强度为 `0.6`。
 - 默认归档阈值为 `0.2`。
 
@@ -78,17 +78,20 @@ R' = R + 0.35 · (1 - R)
 长期稳定性同时根据回忆难度增长：
 
 ```text
-ΔS ∝ 0.15 + 1.85 · (1 - R)^1.25
+ΔS ∝ Puse · [0.15 + 1.85 · (1 - R)^1.25] · (0.5 + D) · (1 - S/730)
 ```
 
 因此刚记住就频繁重复不会无限获得高收益；在已经有些模糊时成功回忆，会带来更大的长期稳定性提升。
 
 ### 检索与反馈
 
-基础排序：
+检索使用向量 Top-100、FTS5 Top-100 和高效用 Top-30 的候选并集，再执行非乘法评分：
 
 ```text
-score = semantic_similarity × current_strength × (1 + boost)
+score = sigmoid(
+  -2 + 3·semantic + 1.2·keyword + 1.2·R
+  + 0.5·trust + 0.8·utility + 0.4·boost - 1.5·conflict
+)
 ```
 
 | 反馈 | 行为 |
@@ -99,18 +102,23 @@ score = semantic_similarity × current_strength × (1 + boost)
 
 `/pre_prompt` 返回的是本轮注入候选。`/post_run` 会检查 Agent 的实际回答，只有出现足够强的内容证据才将对应记忆判定为 `used`。
 
+显式 `used_memory_ids` 的使用概率为 0.98；回退判断输出
+`p_use / p_ignore / p_correct / confidence`。不确定反馈不奖不罚，并写入
+`memory_feedback_events`。完整设计见
+[`docs/easm_algorithm.md`](docs/easm_algorithm.md)。
+
 ### 60 日模拟
 
 ![60-day memory decay simulation](tools/sim_charts/decay_60d_curves.png)
 
 | 使用频率 | 第 60 日强度 |
 |---|---:|
-| 从不使用 | 0.075 |
-| 仅使用一次 | 0.181 |
-| 每 30 天 | 0.390 |
-| 每 14 天 | 0.777 |
-| 每 7 天 | 0.914 |
-| 每 3 天 | 0.981 |
+| 从不使用 | 0.056 |
+| 仅使用一次 | 0.146 |
+| 每 30 天 | 0.351 |
+| 每 14 天 | 0.755 |
+| 每 7 天 | 0.900 |
+| 每 3 天 | 0.974 |
 | 每天 | 0.998 |
 
 完整数据位于 [`tools/sim_charts/decay_60d.csv`](tools/sim_charts/decay_60d.csv)，模拟脚本为 [`tools/simulate_longterm.py`](tools/simulate_longterm.py)。
@@ -173,6 +181,7 @@ python -m brainmemory.cli uninstall --yes
 | `POST /remember` | 手动保存 |
 | `POST /context` | 获取记忆上下文 |
 | `POST /sleep` | 归档弱记忆并清理历史替换记录 |
+| `POST /admin/feedback` | 查询概率反馈及其证据 |
 | `GET /health` | 服务健康检查 |
 | `GET /admin` | Web 控制台 |
 
@@ -234,7 +243,7 @@ The first run downloads `BAAI/bge-large-zh-v1.5` (about 1.3 GB). Set `BRAINMEMOR
 | Hybrid retrieval | Dense BGE similarity combined with FTS5/BM25 lexical evidence |
 | Vectorized scoring | Embeddings are cached in memory and scored with NumPy batch dot products |
 | LLM write arbitration | DeepSeek decides whether to add, update, supersede, archive, delete, or ignore |
-| Automatic consolidation | Memories below `R=0.2` are archived; superseded records are deleted immediately |
+| Automatic consolidation | Low-utility memories below `R=0.2` and older than seven days are archived; superseded records are deleted immediately |
 | Agent integrations | HTTP Sidecar, pi hooks, OpenClaw, and Hermes facades |
 | Web console | Inspect, search, edit, reinforce, archive, and delete memories |
 
@@ -255,16 +264,17 @@ R' = R + 0.35 · (1 - R)
 Long-term stability learns from retrieval effort:
 
 ```text
-ΔS ∝ 0.15 + 1.85 · (1 - R)^1.25
+ΔS ∝ Puse · [0.15 + 1.85 · (1 - R)^1.25] · (0.5 + D) · (1 - S/730)
 ```
 
 This models the spacing effect: immediate repetition has limited long-term value, while a successful recall after some forgetting produces a larger stability gain.
 
 ### Retrieval and feedback
 
-```text
-score = semantic_similarity × current_strength × (1 + boost)
-```
+Candidates are the union of dense top-100, FTS5 top-100, and utility top-30.
+They are ranked by a sigmoid over semantic similarity, lexical match,
+retrievability, Beta trust, utility, boost, and conflict risk. MMR removes
+redundant memories before prompt injection.
 
 | Feedback | Effect |
 |---|---|
@@ -274,18 +284,23 @@ score = semantic_similarity × current_strength × (1 + boost)
 
 `/pre_prompt` returns memories injected for the current run. `/post_run` compares those exact IDs with the latest agent answer. A memory is reinforced only when the answer contains sufficient evidence that it was used.
 
+Explicit `used_memory_ids` receive `P(use)=0.98`. Fallback evidence produces
+`p_use`, `p_ignore`, `p_correct`, and confidence. Uncertain feedback does not
+change the memory. Every observation is stored in `memory_feedback_events`.
+See [`docs/easm_algorithm.md`](docs/easm_algorithm.md).
+
 ### 60-day simulation
 
 ![60-day memory decay simulation](tools/sim_charts/decay_60d_curves.png)
 
 | Use frequency | Strength on day 60 |
 |---|---:|
-| Never | 0.075 |
-| Once | 0.181 |
-| Every 30 days | 0.390 |
-| Every 14 days | 0.777 |
-| Weekly | 0.914 |
-| Every 3 days | 0.981 |
+| Never | 0.056 |
+| Once | 0.146 |
+| Every 30 days | 0.351 |
+| Every 14 days | 0.755 |
+| Weekly | 0.900 |
+| Every 3 days | 0.974 |
 | Daily | 0.998 |
 
 See [`tools/sim_charts/decay_60d.csv`](tools/sim_charts/decay_60d.csv) for the complete dataset.
@@ -337,6 +352,7 @@ python -m brainmemory.cli eval-all
 | `POST /remember` | Save a memory manually |
 | `POST /context` | Retrieve formatted memory context |
 | `POST /sleep` | Archive weak memories and clean legacy superseded records |
+| `POST /admin/feedback` | Inspect probabilistic feedback evidence |
 | `GET /health` | Service health check |
 | `GET /admin` | Web console |
 

@@ -13,6 +13,9 @@ from enum import StrEnum
 from typing import Any
 
 
+DEFAULT_STABILITY: float = 27.465307216702744  # ln(3) / (2 * 0.02)
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -67,6 +70,7 @@ class MemoryWrite:
 class MemoryWritePlan:
     writes: list[MemoryWrite]
     rationale: str = ""
+    feedback: list[dict[str, Any]] | None = None
 
 
 # ── Memory ────────────────────────────────────────────────
@@ -91,6 +95,13 @@ class Memory:
     trust: float = 0.5             # 信任度，验证正确+，被纠正-
     error_count: int = 0           # 被纠正次数
     verify_count: int = 0          # 被验证正确的次数
+    stability: float = DEFAULT_STABILITY
+    difficulty: float = 0.5
+    utility: float = 0.5
+    trust_alpha: float = 2.0
+    trust_beta: float = 2.0
+    exposure_count: int = 0
+    correction_count: int = 0
     # ── 元数据 ──
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -98,6 +109,19 @@ class Memory:
     @property
     def text_for_index(self) -> str:
         return " ".join(part for part in [self.content, self.summary, self.tags] if part)
+
+    @property
+    def trust_mean(self) -> float:
+        total = self.trust_alpha + self.trust_beta
+        return self.trust_alpha / total if total > 0 else self.trust
+
+    def sync_trust(self) -> None:
+        self.trust = self.trust_mean
+
+    def ensure_trust_distribution(self) -> None:
+        if abs(self.trust - self.trust_mean) > 0.05:
+            self.trust_alpha = max(0.1, self.trust * 4.0)
+            self.trust_beta = max(0.1, (1.0 - self.trust) * 4.0)
 
     @classmethod
     def from_row(cls, row: Any) -> "Memory":
@@ -126,6 +150,13 @@ class Memory:
             trust=float(g("trust") or 0.5),
             error_count=int(g("error_count") or 0),
             verify_count=int(g("verify_count") or 0),
+            stability=float(g("stability", DEFAULT_STABILITY)),
+            difficulty=float(g("difficulty", 0.5)),
+            utility=float(g("utility", 0.5)),
+            trust_alpha=float(g("trust_alpha", 2.0)),
+            trust_beta=float(g("trust_beta", 2.0)),
+            exposure_count=int(g("exposure_count", 0)),
+            correction_count=int(g("correction_count", 0)),
             created_at=parse_dt(g("created_at")),
             updated_at=parse_dt(g("updated_at")),
         )

@@ -40,3 +40,26 @@
 # ═══ 多语言 ═══
 {"id":"ret_cn_to_en","query":"vector backend","project_id":"openclaw-demo","expected_contains":"sqlite-vec","k":5}
 {"id":"ret_en_to_cn","query":"Chinese answer style","project_id":"demo","expected_contains":"简洁","k":5}
+
+# ── 扩展集：多种自然改写、噪声与无答案查询 ──
+{"id":"ret_sem_pkg_2","query":"初始化这个仓库之前应该执行哪条安装命令？","project_id":"demo","expected_any":["bun install","bun"],"k":3,"category":"paraphrase"}
+{"id":"ret_sem_pkg_3","query":"把依赖拉下来要敲什么？","project_id":"demo","expected_any":["bun install","bun"],"k":3,"category":"paraphrase"}
+{"id":"ret_sem_pkg_4","query":"这个仓库现在用 npm、pnpm 还是 bun？","project_id":"demo","expected_any":["bun install","bun"],"forbidden_contains":"pnpm install","k":3,"category":"supersede"}
+{"id":"ret_sem_style_2","query":"请回忆我对技术回答结构的要求","project_id":"demo","expected_any":["先给结论","必要步骤"],"k":3,"category":"paraphrase"}
+{"id":"ret_sem_style_3","query":"技术问题先讲什么，再讲什么？","project_id":"demo","expected_any":["先给结论","必要步骤"],"k":3,"category":"paraphrase"}
+{"id":"ret_sem_style_4","query":"我喜欢冗长解释还是简短回答？","project_id":"demo","expected_any":["简洁","不要展开无关"],"k":3,"category":"paraphrase"}
+{"id":"ret_sem_frontend_2","query":"UI 层采用了哪些框架？","project_id":"demo","expected_any":["React 18","TypeScript","Zustand"],"k":3,"category":"paraphrase"}
+{"id":"ret_sem_frontend_3","query":"前端状态放在哪里管理？","project_id":"demo","expected_contains":"Zustand","k":3,"category":"exact"}
+{"id":"ret_sem_deploy_2","query":"构建完成以后如何启动容器？","project_id":"demo","expected_any":["docker compose up -d","pnpm build"],"k":3,"category":"procedure"}
+{"id":"ret_sem_deploy_3","query":"上线命令的执行顺序是什么？","project_id":"demo","expected_any":["pnpm build","docker compose up -d"],"k":3,"category":"procedure"}
+{"id":"ret_cross_pkg_2","query":"Which package manager does this repository use?","project_id":"demo","expected_any":["bun install","bun"],"k":5,"category":"cross_language"}
+{"id":"ret_cross_style_2","query":"What is my preferred response format?","project_id":"demo","expected_any":["先给结论","简洁"],"k":5,"category":"cross_language"}
+{"id":"ret_cross_backend_2","query":"What powers vector search in OpenClaw demo?","project_id":"openclaw-demo","expected_contains":"sqlite-vec","k":5,"category":"cross_language"}
+{"id":"ret_typo_pkg","query":"依懒安装用甚么命令","project_id":"demo","expected_any":["bun install","bun"],"k":5,"category":"noise"}
+{"id":"ret_noise_backend","query":"请问，那个 OpenClaw demo……向量后端来着？","project_id":"openclaw-demo","expected_contains":"sqlite-vec","k":5,"category":"noise"}
+{"id":"ret_rank_frontend","query":"React TypeScript Zustand 前端技术栈","project_id":"demo","expected_contains":"React 18","k":1,"category":"ranking"}
+{"id":"ret_rank_backend_2","query":"OpenClaw sqlite vec backend","project_id":"openclaw-demo","expected_contains":"sqlite-vec","k":1,"category":"ranking"}
+{"id":"ret_negative_unrelated_1","query":"这个项目的办公地址在哪里？","project_id":"demo","expected_contains":"","k":3,"category":"negative"}
+{"id":"ret_negative_unrelated_2","query":"服务器有多少 CPU 核心？","project_id":"demo","expected_contains":"","k":3,"category":"negative"}
+{"id":"ret_negative_stale_pkg","query":"项目现在还使用 pnpm install 吗？","project_id":"demo","expected_any":["bun install","bun"],"forbidden_contains":"pnpm install","k":3,"category":"supersede"}
+{"id":"ret_isolation_3","query":"OpenClaw demo 的向量数据库是什么？","project_id":"demo","expected_contains":"","forbidden_contains":"sqlite-vec","k":5,"category":"scope"}

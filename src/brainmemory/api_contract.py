@@ -70,7 +70,7 @@ def openapi_spec() -> dict[str, Any]:
         "info": {
             "title": "BrainMemory Sidecar API",
             "version": "0.1.0",
-            "description": "Continuous Strength Memory sidecar API for long-running LLM agents.",
+            "description": "Evidence-Adaptive Spaced Memory sidecar API for long-running LLM agents.",
         },
         "components": {
             "securitySchemes": {
@@ -190,6 +190,14 @@ def openapi_spec() -> dict[str, Any]:
                     "security": [{"ApiKeyAuth": []}, {"BearerAuth": []}],
                     "requestBody": {"required": False, "content": json_content},
                     "responses": {"200": {"description": "Reindex result", "content": json_content}},
+                }
+            },
+            "/admin/feedback": {
+                "post": {
+                    "summary": "List probabilistic feedback evidence events",
+                    "security": [{"ApiKeyAuth": []}, {"BearerAuth": []}],
+                    "requestBody": {"required": False, "content": json_content},
+                    "responses": {"200": {"description": "Feedback events", "content": json_content}},
                 }
             },
         },

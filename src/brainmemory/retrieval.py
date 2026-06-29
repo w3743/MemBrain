@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Iterable
+import math
 
 from .embedding import cosine, tokenize
 from .models import Memory, MemoryStatus
@@ -34,6 +34,9 @@ class SearchResult:
     semantic_similarity: float
     keyword_score: float
     current_strength: float
+    trust_score: float = 0.5
+    utility_score: float = 0.5
+    interference: float = 0.0
 
 
 class RetrievalMode(StrEnum):
@@ -64,11 +67,30 @@ class HybridRetriever:
         # FTS5 关键词搜索（作为语义的补充信号）
         keyword_scores = self.store.keyword_search(query, limit=50)
 
-        # 收集候选记忆
+        # Dense top-k + sparse top-k + high-utility candidates.
         rows = self._candidate_rows(project_id, mode)
         semantic_scores = self._semantic_scores(query_vec, rows)
+        dense_ids = {
+            memory_id
+            for memory_id, _ in sorted(
+                semantic_scores.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )[:100]
+        }
+        utility_ids = {
+            int(row["id"])
+            for row in sorted(
+                rows,
+                key=lambda row: float(row["utility"]),
+                reverse=True,
+            )[:30]
+        }
+        candidate_ids = dense_ids | set(keyword_scores) | utility_ids
         candidates: dict[int, tuple[Memory, float]] = {}
         for row in rows:
+            if int(row["id"]) not in candidate_ids:
+                continue
             memory = Memory.from_row(row)
             semantic = semantic_scores.get(int(row["id"]), 0.0)
             candidates[int(row["id"])] = (memory, semantic)
@@ -79,21 +101,23 @@ class HybridRetriever:
             # 回答注入模式下跳过非活跃记忆
             if mode == RetrievalMode.ANSWER_INJECTION and memory.status != MemoryStatus.ACTIVE:
                 continue
-            strength = current_strength(memory, now)
+            interference = self._interference(memory, rows, now)
+            strength = current_strength(memory, now, interference=interference)
             keyword = max(keyword_scores.get(memory.id or -1, 0.0), _lexical_overlap(query, memory.text_for_index))
-
-            # 核心公式：语义相似度 × 强度 × (1 + 经验偏置)
-            # 当语义匹配很低时，关键词匹配提供微弱信号
-            final = semantic * strength * (1.0 + memory.boost)
-            if keyword > 0:
-                # 关键词匹配时适当提升
-                final = max(final, 0.3 * keyword * strength * (1.0 + memory.boost))
-
-            # 已替代/归档记忆降权（写入仲裁模式下仍可见）
-            status_penalty = 1.0
+            conflict_risk = interference
             if memory.status in {MemoryStatus.SUPERSEDED, MemoryStatus.ARCHIVED}:
-                status_penalty = 0.3
-            final *= status_penalty
+                conflict_risk = min(1.0, conflict_risk + 0.7)
+            z = (
+                -2.0
+                + 3.0 * semantic
+                + 1.2 * keyword
+                + 1.2 * strength
+                + 0.5 * memory.trust_mean
+                + 0.8 * memory.utility
+                + 0.4 * memory.boost
+                - 1.5 * conflict_risk
+            )
+            final = 1.0 / (1.0 + math.exp(-z))
 
             if mode == RetrievalMode.ANSWER_INJECTION and not _passes_answer_injection_gate(final, semantic, keyword):
                 continue
@@ -104,10 +128,71 @@ class HybridRetriever:
                 semantic,
                 keyword,
                 strength,
+                memory.trust_mean,
+                memory.utility,
+                interference,
             ))
 
         results.sort(key=lambda item: item.final_score, reverse=True)
-        return _dedupe_results(results)[:limit]
+        return self._mmr_select(_dedupe_results(results), limit)
+
+    def _interference(self, memory: Memory, rows: list, now: datetime | None) -> float:
+        if memory.id is None:
+            return 0.0
+        source = self._vector_cache.get(memory.id, [])
+        if not source:
+            return 0.0
+        reference_time = now or datetime.now(memory.created_at.tzinfo if memory.created_at else None)
+        total = 0.0
+        for row in rows:
+            other_id = int(row["id"])
+            if other_id == memory.id or row["status"] != MemoryStatus.ACTIVE.value:
+                continue
+            other = Memory.from_row(row)
+            if not other.created_at or not memory.created_at or other.created_at <= memory.created_at:
+                continue
+            conflict = _conflict_probability(memory.content, other.content)
+            if conflict <= 0:
+                continue
+            similarity = cosine(source, self._vector_cache.get(other_id, []))
+            age_days = max(0.0, (reference_time - other.created_at).total_seconds() / 86400.0)
+            total += similarity * similarity * conflict * math.exp(-age_days / 30.0)
+        return min(1.0, total)
+
+    def interference_for(self, memory: Memory, now: datetime | None = None) -> float:
+        rows = self._candidate_rows(memory.project_id, RetrievalMode.WRITE_ARBITRATION)
+        if memory.id is None:
+            return 0.0
+        vector = self.store.conn.execute(
+            "SELECT embedding FROM memories WHERE id=?",
+            (memory.id,),
+        ).fetchone()
+        if vector is None:
+            return 0.0
+        source = self.store.embedding_for_row(vector)
+        self._semantic_scores(source, rows)
+        return self._interference(memory, rows, now)
+
+    def _mmr_select(self, results: list[SearchResult], limit: int) -> list[SearchResult]:
+        selected: list[SearchResult] = []
+        remaining = list(results)
+        while remaining and len(selected) < limit:
+            best = max(
+                remaining,
+                key=lambda item: item.final_score - 0.25 * max(
+                    (
+                        cosine(
+                            self._vector_cache.get(item.memory.id or -1, []),
+                            self._vector_cache.get(chosen.memory.id or -1, []),
+                        )
+                        for chosen in selected
+                    ),
+                    default=0.0,
+                ),
+            )
+            selected.append(best)
+            remaining.remove(best)
+        return selected
 
     def _semantic_scores(self, query_vec: list[float], rows: list) -> dict[int, float]:
         """Vectorized cosine scoring with an index-versioned embedding cache."""
@@ -226,3 +311,24 @@ def _expanded_query_tokens(query: str) -> set[str]:
     if any(term in text for term in ["偏好", "习惯", "风格", "preference", "style"]):
         tokens.update({"偏", "好", "偏好", "风", "格", "风格", "回答", "回复"})
     return tokens
+
+
+def _conflict_probability(left: str, right: str) -> float:
+    left_lower = left.lower()
+    right_lower = right.lower()
+    domains = (
+        {"bun", "pnpm", "npm", "yarn", "pip"},
+        {"mysql", "postgresql", "sqlite", "redis"},
+        {"简洁", "详细", "concise", "detailed"},
+    )
+    for domain in domains:
+        left_values = {value for value in domain if value in left_lower}
+        right_values = {value for value in domain if value in right_lower}
+        if left_values and right_values and left_values != right_values:
+            return 0.9
+    correction_terms = ("改用", "改成", "不再", "instead", "replaced", "now uses")
+    if any(term in right_lower for term in correction_terms):
+        overlap = set(tokenize(left_lower)) & set(tokenize(right_lower))
+        if overlap:
+            return 0.7
+    return 0.0

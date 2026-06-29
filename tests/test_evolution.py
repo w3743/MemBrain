@@ -15,7 +15,8 @@ def test_apply_feedback_used() -> None:
     assert m.boost > 0.0           # boost increased
     assert m.trust > 0.5           # trust increased
     assert m.verify_count == 1     # verify counted
-    assert m.decay_rate == 0.02    # decay_rate 由 reinforce() 统一管理，apply_feedback 不再修改
+    assert m.decay_rate < 0.02     # successful recall increases stability
+    assert m.stability > 27.0
 
 
 def test_apply_feedback_ignored() -> None:
@@ -83,7 +84,8 @@ def test_inherit_from() -> None:
     parent = Memory(id=1, content="old", trust=0.9, verify_count=10, error_count=2)
     child = Memory(id=2, content="new", trust=0.5, verify_count=0, error_count=0)
     child = inherit_from(child, parent)
-    assert child.trust == (0.9 + 0.5) / 2   # 新旧平均
+    assert child.trust > 0.5
+    assert child.trust_alpha > 2.0
     assert child.verify_count == 9           # parent.verify - 1
     assert child.error_count == 2            # 保留错误历史
 
@@ -146,7 +148,7 @@ def test_supersede_inherits_trust(tmp_path) -> None:
             content="使用 bun install", project_id="test",
         )
         assert new is not None
-        assert new.trust > 0.5     # 继承了信任
+        assert new.trust > 0.5     # 继承了 Beta 信任证据
         assert new.verify_count == 4  # parent.verify - 1
     finally:
         engine.close()

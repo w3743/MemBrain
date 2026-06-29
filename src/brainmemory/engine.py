@@ -10,6 +10,7 @@ CSM 引擎 — 简化版
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from pathlib import Path
 
@@ -109,18 +110,24 @@ class BrainMemoryEngine:
             return self.store.update(target)
 
         if op == MemoryOp.SUPERSEDE:
-            replacement = self.add_memory(
+            replacement = Memory(
+                id=None,
                 content=content,
-                summary=summary,
+                summary=summary or content[:120],
+                strength=INITIAL_STRENGTH,
                 project_id=project_id or target.project_id,
                 tags=tags,
                 sensitivity=sensitivity,
             )
             inherit_from(replacement, target)  # 继承旧记忆的信任
-            self.store.update(replacement)
-            # The replacement has inherited the useful history; the obsolete
-            # record is no longer retained.
-            self.store.delete(target_id)
+            try:
+                self.store.conn.execute("BEGIN")
+                self.store.add(replacement, commit=False)
+                self.store.delete(target_id, commit=False)
+                self.store.conn.commit()
+            except Exception:
+                self.store.conn.rollback()
+                raise
             return replacement
 
         if op == MemoryOp.ARCHIVE:
@@ -198,8 +205,21 @@ class BrainMemoryEngine:
                 if memory.id is not None and self.store.delete(memory.id):
                     deleted_superseded += 1
                 continue
-            R = current_strength(memory)
-            if memory.status == MemoryStatus.ACTIVE and R < R_low:
+            R = current_strength(
+                memory,
+                interference=self.retriever.interference_for(memory),
+            )
+            age_days = (
+                (utc_now() - memory.created_at).total_seconds() / 86400.0
+                if memory.created_at else 0.0
+            )
+            effective_utility = memory.utility * math.exp(-age_days / 90.0)
+            if (
+                memory.status == MemoryStatus.ACTIVE
+                and R < R_low
+                and age_days > 7.0
+                and effective_utility < 0.4
+            ):
                 memory.status = MemoryStatus.ARCHIVED
                 memory.strength = R
                 memory.last_accessed_at = utc_now()
@@ -226,10 +246,28 @@ class BrainMemoryEngine:
                     tag_freq[tag] += 1
 
         # Strength distribution stats
-        strengths = [current_strength(m) for m in active_memories]
+        strengths = [
+            current_strength(m, interference=self.retriever.interference_for(m))
+            for m in active_memories
+        ]
         avg_strength = sum(strengths) / len(strengths) if strengths else 0.0
         max_strength = max(strengths) if strengths else 0.0
         min_strength = min(strengths) if strengths else 0.0
+        avg_stability = (
+            sum(m.stability for m in active_memories) / len(active_memories)
+            if active_memories else 0.0
+        )
+        avg_difficulty = (
+            sum(m.difficulty for m in active_memories) / len(active_memories)
+            if active_memories else 0.0
+        )
+        avg_utility = (
+            sum(m.utility for m in active_memories) / len(active_memories)
+            if active_memories else 0.0
+        )
+        feedback_count = int(
+            self.store.conn.execute("SELECT COUNT(*) FROM memory_feedback_events").fetchone()[0]
+        )
 
         return {
             "total": len(all_memories),
@@ -239,6 +277,10 @@ class BrainMemoryEngine:
             "avg_strength": round(avg_strength, 4),
             "max_strength": round(max_strength, 4),
             "min_strength": round(min_strength, 4),
+            "avg_stability": round(avg_stability, 4),
+            "avg_difficulty": round(avg_difficulty, 4),
+            "avg_utility": round(avg_utility, 4),
+            "feedback_events": feedback_count,
         }
 
     def reindex_embeddings(self) -> dict[str, object]:

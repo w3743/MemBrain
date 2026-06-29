@@ -38,9 +38,11 @@ class RetrievalCase:
     query: str
     project_id: str | None
     expected_contains: str
+    expected_any: tuple[str, ...] = ()
     forbidden_contains: str = ""
     k: int = 3
     min_score: float = 0.0
+    category: str = "general"
 
 
 @dataclass(slots=True)
@@ -81,12 +83,17 @@ class EvalResult:
 @dataclass(slots=True)
 class RetrievalEvalResult:
     total: int = 0
+    positive_total: int = 0
+    negative_total: int = 0
     recall_at_k: float = 0.0
     precision_at_k: float = 0.0
     mrr: float = 0.0  # Mean Reciprocal Rank
     ndcg: float = 0.0  # Normalized Discounted Cumulative Gain
     forbidden_hit_rate: float = 0.0
     avg_first_score: float = 0.0
+    no_answer_accuracy: float = 0.0
+    recall_ci95: tuple[float, float] = (0.0, 0.0)
+    category_metrics: dict[str, dict[str, float | int]] = field(default_factory=dict)
     failures: list[dict[str, str]] = field(default_factory=list)
     per_case: list[dict[str, Any]] = field(default_factory=list)
 
@@ -150,15 +157,40 @@ def load_extraction_cases(path: str | Path) -> list[ExtractionCase]:
 
 def load_retrieval_cases(path: str | Path) -> list[RetrievalCase]:
     def build(data, _ln):
+        expected_contains = str(data.get("expected_contains", ""))
+        raw_expected_any = data.get("expected_any", [])
+        if not isinstance(raw_expected_any, list):
+            raise ValueError("expected_any must be a list")
+        expected_any = tuple(str(item) for item in raw_expected_any if str(item))
+        if expected_contains and expected_contains not in expected_any:
+            expected_any = (expected_contains, *expected_any)
         return RetrievalCase(
             id=str(data["id"]), query=str(data["query"]),
             project_id=data.get("project_id"),
-            expected_contains=str(data.get("expected_contains", "")),
+            expected_contains=expected_contains,
+            expected_any=expected_any,
             forbidden_contains=str(data.get("forbidden_contains", "")),
             k=int(data.get("k", 3)),
             min_score=float(data.get("min_score", 0.0)),
+            category=str(data.get("category") or _infer_retrieval_category(str(data["id"]))),
         )
     return _parse_jsonl(path, build)
+
+
+def _infer_retrieval_category(case_id: str) -> str:
+    if case_id.startswith(("ret_empty", "ret_nonexist", "ret_short", "ret_negative")):
+        return "negative"
+    if case_id.startswith("ret_isolation"):
+        return "scope"
+    if case_id.startswith(("ret_cn_", "ret_en_", "ret_cross")):
+        return "cross_language"
+    if case_id.startswith("ret_rank"):
+        return "ranking"
+    if case_id.startswith("ret_sem"):
+        return "paraphrase"
+    if case_id.startswith("ret_partial"):
+        return "partial"
+    return "exact"
 
 
 def load_end_to_end_cases(path: str | Path) -> list[EndToEndCase]:
@@ -248,10 +280,17 @@ def evaluate_retrieval_full(engine: BrainMemoryEngine, cases: list[RetrievalCase
     recall_hits = 0
     precision_sum = 0.0
     forbidden_hits = 0
+    forbidden_total = 0
     mrr_sum = 0.0
     ndcg_sum = 0.0
     first_scores_sum = 0.0
     first_score_count = 0
+    positive_total = 0
+    negative_total = 0
+    negative_passed = 0
+    category_stats: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"total": 0, "positive": 0, "hits": 0, "negative": 0, "negative_passed": 0}
+    )
     per_case: list[dict[str, Any]] = []
 
     for case in cases:
@@ -259,26 +298,41 @@ def evaluate_retrieval_full(engine: BrainMemoryEngine, cases: list[RetrievalCase
         contents = [r.memory.content for r in results]
         scores = [r.final_score for r in results]
 
+        expected_terms = case.expected_any or ((case.expected_contains,) if case.expected_contains else ())
         expected_hits = []
         for idx, content in enumerate(contents):
-            if case.expected_contains and case.expected_contains in content:
+            if expected_terms and any(term in content for term in expected_terms):
                 expected_hits.append(idx)
 
         forbidden = bool(case.forbidden_contains and any(case.forbidden_contains in c for c in contents))
+        stats = category_stats[case.category]
+        stats["total"] += 1
 
-        if expected_hits:
-            recall_hits += 1
-            # MRR: 1 / (第一个命中位置+1)
-            mrr_sum += 1.0 / (expected_hits[0] + 1)
-            # NDCG: 1 / log2(rank+2)
-            ndcg_sum += 1.0 / math.log2(expected_hits[0] + 2)
-        else:
-            if case.expected_contains:
+        if expected_terms:
+            positive_total += 1
+            stats["positive"] += 1
+            score_ok = not case.min_score or bool(scores and scores[0] >= case.min_score)
+            if expected_hits and score_ok:
+                recall_hits += 1
+                stats["hits"] += 1
+                mrr_sum += 1.0 / (expected_hits[0] + 1)
+                ndcg_sum += 1.0 / math.log2(expected_hits[0] + 2)
+            else:
+                expected_label = " | ".join(expected_terms)
                 failures.append({
-                    "id": case.id, "reason": f"expected '{case.expected_contains}' not in top {case.k}",
+                    "id": case.id, "reason": f"expected one of '{expected_label}' not in top {case.k}",
                     "results": " | ".join(contents[:5]),
                 })
+        else:
+            negative_total += 1
+            stats["negative"] += 1
+            negative_ok = not results if not case.forbidden_contains else not forbidden
+            if negative_ok:
+                negative_passed += 1
+                stats["negative_passed"] += 1
 
+        if case.forbidden_contains:
+            forbidden_total += 1
         if forbidden:
             forbidden_hits += 1
             if not any(f["id"] == case.id for f in failures):
@@ -287,7 +341,8 @@ def evaluate_retrieval_full(engine: BrainMemoryEngine, cases: list[RetrievalCase
                     "results": " | ".join(contents[:5]),
                 })
 
-        precision_sum += len(expected_hits) / case.k if case.k else 0.0
+        if expected_terms:
+            precision_sum += len(expected_hits) / case.k if case.k else 0.0
 
         if scores:
             first_scores_sum += scores[0]
@@ -296,6 +351,7 @@ def evaluate_retrieval_full(engine: BrainMemoryEngine, cases: list[RetrievalCase
         per_case.append({
             "id": case.id,
             "query": case.query,
+            "category": case.category,
             "recall": 1 if expected_hits else 0,
             "first_rank": expected_hits[0] + 1 if expected_hits else None,
             "top_score": round(scores[0], 4) if scores else 0,
@@ -303,17 +359,46 @@ def evaluate_retrieval_full(engine: BrainMemoryEngine, cases: list[RetrievalCase
         })
 
     total = len(cases)
+    ci_low, ci_high = _wilson_interval(recall_hits, positive_total)
+    category_metrics: dict[str, dict[str, float | int]] = {}
+    for category, stats in sorted(category_stats.items()):
+        positives = stats["positive"]
+        negatives = stats["negative"]
+        category_metrics[category] = {
+            "total": stats["total"],
+            "positive_total": positives,
+            "recall_at_k": stats["hits"] / positives if positives else 0.0,
+            "negative_total": negatives,
+            "no_answer_accuracy": stats["negative_passed"] / negatives if negatives else 0.0,
+        }
     return RetrievalEvalResult(
         total=total,
-        recall_at_k=recall_hits / total if total else 0.0,
-        precision_at_k=precision_sum / total if total else 0.0,
-        mrr=mrr_sum / total if total else 0.0,
-        ndcg=ndcg_sum / total if total else 0.0,
-        forbidden_hit_rate=forbidden_hits / total if total else 0.0,
+        positive_total=positive_total,
+        negative_total=negative_total,
+        recall_at_k=recall_hits / positive_total if positive_total else 0.0,
+        precision_at_k=precision_sum / positive_total if positive_total else 0.0,
+        mrr=mrr_sum / positive_total if positive_total else 0.0,
+        ndcg=ndcg_sum / positive_total if positive_total else 0.0,
+        forbidden_hit_rate=forbidden_hits / forbidden_total if forbidden_total else 0.0,
         avg_first_score=first_scores_sum / first_score_count if first_score_count else 0.0,
+        no_answer_accuracy=negative_passed / negative_total if negative_total else 0.0,
+        recall_ci95=(ci_low, ci_high),
+        category_metrics=category_metrics,
         failures=failures,
         per_case=per_case,
     )
+
+
+def _wilson_interval(successes: int, total: int, z: float = 1.96) -> tuple[float, float]:
+    """Return the Wilson confidence interval for a binomial proportion."""
+    if total <= 0:
+        return 0.0, 0.0
+    p = successes / total
+    z2 = z * z
+    denominator = 1.0 + z2 / total
+    centre = (p + z2 / (2.0 * total)) / denominator
+    margin = z * math.sqrt((p * (1.0 - p) + z2 / (4.0 * total)) / total) / denominator
+    return max(0.0, centre - margin), min(1.0, centre + margin)
 
 
 def seed_retrieval_fixture(engine: BrainMemoryEngine) -> None:
@@ -344,6 +429,14 @@ def seed_retrieval_fixture(engine: BrainMemoryEngine) -> None:
 def evaluate_retrieval_fixture(db_path: str | Path, fixture_path: str | Path) -> RetrievalEvalResult:
     engine = BrainMemoryEngine(db_path)
     try:
+        # Keep repeated benchmark runs independent even when the CLI already has
+        # the database open. Deleting rows works across SQLite connections,
+        # whereas unlinking an open database fails on Windows.
+        engine.store.conn.execute("DELETE FROM memory_feedback_events")
+        engine.store.conn.execute("DELETE FROM memory_links")
+        engine.store.conn.execute("DELETE FROM memories_fts")
+        engine.store.conn.execute("DELETE FROM memories")
+        engine.store.conn.commit()
         seed_retrieval_fixture(engine)
         return evaluate_retrieval_full(engine, load_retrieval_cases(fixture_path))
     finally:
@@ -619,12 +712,17 @@ def run_full_evaluation(db_path: str | Path, work_dir: str | Path) -> dict[str, 
     ret_result = evaluate_retrieval_fixture(db_path, Path("eval/retrieval_cases.jsonl"))
     report["retrieval"] = {
         "total": ret_result.total,
+        "positive_total": ret_result.positive_total,
+        "negative_total": ret_result.negative_total,
         "recall_at_k": round(ret_result.recall_at_k, 4),
         "precision_at_k": round(ret_result.precision_at_k, 4),
         "mrr": round(ret_result.mrr, 4),
         "ndcg": round(ret_result.ndcg, 4),
         "forbidden_hit_rate": round(ret_result.forbidden_hit_rate, 4),
         "avg_first_score": round(ret_result.avg_first_score, 4),
+        "no_answer_accuracy": round(ret_result.no_answer_accuracy, 4),
+        "recall_ci95": [round(value, 4) for value in ret_result.recall_ci95],
+        "category_metrics": ret_result.category_metrics,
         "failures": len(ret_result.failures),
     }
 

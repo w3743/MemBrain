@@ -23,6 +23,9 @@ REINFORCEMENT_GAIN: float = 0.35
 
 # 稳定性学习幅度。实际增益还会随“回忆难度”自适应变化。
 STABILITY_GAIN: float = 0.45
+STABILITY_MAX_DAYS: float = 730.0
+DIFFICULTY_DECAY_WEIGHT: float = 0.25
+INTERFERENCE_DECAY_WEIGHT: float = 0.6
 
 # 默认初始强度
 INITIAL_STRENGTH: float = 0.6
@@ -41,7 +44,19 @@ def elapsed_days(since: datetime | None, now: datetime | None = None) -> float:
     return max(0.0, (now - since).total_seconds() / 86400.0)
 
 
-def current_strength(memory: Memory, now: datetime | None = None) -> float:
+def decay_to_stability(decay_rate: float) -> float:
+    return math.log(3) / (2.0 * max(0.001, min(0.3, decay_rate)))
+
+
+def stability_to_decay(stability: float) -> float:
+    return max(0.001, min(0.3, math.log(3) / (2.0 * max(0.1, stability))))
+
+
+def current_strength(
+    memory: Memory,
+    now: datetime | None = None,
+    interference: float = 0.0,
+) -> float:
     """计算记忆当前的强度（自适应衰减后）。
 
     有效衰减率 = decay_rate × (2.0 - R_at_time)
@@ -55,7 +70,10 @@ def current_strength(memory: Memory, now: datetime | None = None) -> float:
     # R 高（接近 1.0）→ effective_d ≈ decay_rate（慢忘）
     # R 低（接近 0.0）→ effective_d ≈ 2 × decay_rate（快忘）
     s0 = memory.strength
-    d = memory.decay_rate
+    stability = max(0.1, memory.stability)
+    difficulty_factor = 1.0 + DIFFICULTY_DECAY_WEIGHT * max(0.0, min(1.0, memory.difficulty))
+    interference_factor = 1.0 + INTERFERENCE_DECAY_WEIGHT * max(0.0, min(1.0, interference))
+    d = stability_to_decay(stability) * difficulty_factor * interference_factor
     # 解微分方程 dR/dt = -d * (2-R) * R 的近似：分段数值积分
     # 简化为：effective_d = d * (2 - average_R)
     # 使用中点近似
@@ -71,7 +89,11 @@ def current_strength(memory: Memory, now: datetime | None = None) -> float:
     return max(0.0, min(1.0, R))
 
 
-def reinforce(memory: Memory, now: datetime | None = None) -> float:
+def reinforce(
+    memory: Memory,
+    now: datetime | None = None,
+    probability: float = 1.0,
+) -> float:
     """Successful recall strengthens both activation and long-term stability.
 
     Immediate activation moves 35% toward 1.0. Stability follows the spacing
@@ -80,23 +102,30 @@ def reinforce(memory: Memory, now: datetime | None = None) -> float:
     """
     R = current_strength(memory, now=now)
 
-    new_strength = R + REINFORCEMENT_GAIN * (1.0 - R)
+    probability = max(0.0, min(1.0, probability))
+    new_strength = R + REINFORCEMENT_GAIN * probability * (1.0 - R)
     new_strength = max(0.0, min(1.0, new_strength))
 
     # For R(0)=1 in our nonlinear curve, half-life is ln(3)/(2d).
-    if memory.decay_rate > 0:
-        old_S = math.log(3) / (2.0 * memory.decay_rate)
-    else:
-        old_S = 30.0
+    old_S = max(0.1, memory.stability)
 
     retrieval_effort = (1.0 - R) ** 1.25
     spacing_multiplier = 0.15 + 1.85 * retrieval_effort
-    difficulty_multiplier = 1.15 - 0.3 * memory.trust
-    stability_growth = STABILITY_GAIN * spacing_multiplier * difficulty_multiplier
+    difficulty_multiplier = 0.5 + memory.difficulty
+    saturation = max(0.0, 1.0 - old_S / STABILITY_MAX_DAYS)
+    stability_growth = (
+        STABILITY_GAIN
+        * probability
+        * spacing_multiplier
+        * difficulty_multiplier
+        * saturation
+    )
     new_S = old_S * (1.0 + stability_growth)
-    memory.decay_rate = max(
-        0.001,
-        min(0.3, math.log(3) / (2.0 * new_S)),
+    memory.stability = min(STABILITY_MAX_DAYS, new_S)
+    memory.decay_rate = stability_to_decay(memory.stability)
+    memory.difficulty = max(
+        0.0,
+        memory.difficulty - 0.03 * probability * (1.0 - R),
     )
 
     return new_strength

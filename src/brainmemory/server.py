@@ -190,6 +190,10 @@ def create_handler(db_path: str | Path, api_key: str | None = None):
                 return {"memory": _memory_payload(memory) if memory else None}
             if self.path == "/admin/reindex-embeddings":
                 return engine.reindex_embeddings()
+            if self.path == "/admin/feedback":
+                memory_id = payload.get("memory_id")
+                rows = engine.store.feedback_events(int(memory_id) if memory_id is not None else None)
+                return {"items": [dict(row) for row in rows]}
             raise ValueError(f"unknown endpoint: {self.path}")
 
         def _admin_health(self) -> dict[str, Any]:
@@ -254,6 +258,13 @@ def _memory_payload(memory) -> dict[str, Any]:
         "decay_rate": round(memory.decay_rate, 5),
         "boost": round(memory.boost, 4),
         "trust": round(memory.trust, 4),
+        "trust_alpha": round(memory.trust_alpha, 4),
+        "trust_beta": round(memory.trust_beta, 4),
+        "stability": round(memory.stability, 4),
+        "difficulty": round(memory.difficulty, 4),
+        "utility": round(memory.utility, 4),
+        "exposure_count": memory.exposure_count,
+        "correction_count": memory.correction_count,
         "error_count": memory.error_count,
         "verify_count": memory.verify_count,
         "created_at": memory.created_at.isoformat() if memory.created_at else None,
@@ -268,6 +279,9 @@ def _search_payload(result) -> dict[str, Any]:
         "semantic_similarity": round(result.semantic_similarity, 4),
         "keyword_score": round(result.keyword_score, 4),
         "current_strength": round(result.current_strength, 4),
+        "trust_score": round(result.trust_score, 4),
+        "utility_score": round(result.utility_score, 4),
+        "interference": round(result.interference, 4),
     }
 
 
@@ -296,6 +310,7 @@ def _admin_storage_project_id(project_id: str | None, user_id: str = "") -> str 
 def _plan_payload(plan) -> dict[str, Any]:
     return {
         "rationale": plan.rationale,
+        "feedback": plan.feedback or [],
         "writes": [{"op": w.op.value, "target_id": w.target_id, "content": w.content, "summary": w.summary, "tags": w.tags} for w in plan.writes],
     }
 

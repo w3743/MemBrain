@@ -347,11 +347,16 @@ def main(argv: list[str] | None = None) -> None:
         elif args.command == "eval-retrieval":
             result = evaluate_retrieval_fixture(args.db, args.fixture)
             print_json({
-                "total": result.total, "recall_at_k": round(result.recall_at_k, 4),
+                "total": result.total, "positive_total": result.positive_total,
+                "negative_total": result.negative_total,
+                "recall_at_k": round(result.recall_at_k, 4),
                 "precision_at_k": round(result.precision_at_k, 4),
                 "mrr": round(result.mrr, 4), "ndcg": round(result.ndcg, 4),
                 "forbidden_hit_rate": round(result.forbidden_hit_rate, 4),
                 "avg_first_score": round(result.avg_first_score, 4),
+                "no_answer_accuracy": round(result.no_answer_accuracy, 4),
+                "recall_ci95": [round(value, 4) for value in result.recall_ci95],
+                "category_metrics": result.category_metrics,
                 "failures": result.failures,
             })
         elif args.command == "eval-e2e":

@@ -9,11 +9,11 @@
 
 # ═══ 衰减测试 ═══
 {"id":"decay_1day","type":"decay","initial_strength":1.0,"days_elapsed":1,"access_count":0,"expected_range":[0.97,0.99]}
-{"id":"decay_7day","type":"decay","initial_strength":1.0,"days_elapsed":7,"access_count":0,"expected_range":[0.86,0.88]}
-{"id":"decay_30day","type":"decay","initial_strength":1.0,"days_elapsed":30,"access_count":0,"expected_range":[0.46,0.47]}
-{"id":"decay_100day","type":"decay","initial_strength":1.0,"days_elapsed":100,"access_count":0,"expected_range":[0.035,0.037]}
+{"id":"decay_7day","type":"decay","initial_strength":1.0,"days_elapsed":7,"access_count":0,"expected_range":[0.84,0.85]}
+{"id":"decay_30day","type":"decay","initial_strength":1.0,"days_elapsed":30,"access_count":0,"expected_range":[0.41,0.42]}
+{"id":"decay_100day","type":"decay","initial_strength":1.0,"days_elapsed":100,"access_count":0,"expected_range":[0.021,0.023]}
 {"id":"decay_365day","type":"decay","initial_strength":1.0,"days_elapsed":365,"access_count":0,"expected_range":[0.0,0.00001]}
-{"id":"decay_half","type":"decay","initial_strength":0.5,"days_elapsed":30,"access_count":0,"expected_range":[0.18,0.19]}
+{"id":"decay_half","type":"decay","initial_strength":0.5,"days_elapsed":30,"access_count":0,"expected_range":[0.15,0.17]}
 {"id":"decay_zero","type":"decay","initial_strength":0.0,"days_elapsed":100,"access_count":0,"expected_range":[0.0,0.0]}
 
 # ═══ 强化测试（从当前强度向 1.0 移动 35%）═══
@@ -23,5 +23,5 @@
 {"id":"reinforce_from_low","type":"reinforce","initial_strength":0.1,"days_elapsed":1,"access_count":2,"expected_range":[0.41,0.42]}
 
 # ═══ 综合衰减+强化 ═══
-{"id":"combo_decay_reinforce","type":"decay","initial_strength":1.0,"days_elapsed":14,"access_count":0,"expected_range":[0.72,0.74]}
-{"id":"combo_frequent_use","type":"decay","initial_strength":0.5,"days_elapsed":2,"access_count":0,"expected_range":[0.47,0.48]}
+{"id":"combo_decay_reinforce","type":"decay","initial_strength":1.0,"days_elapsed":14,"access_count":0,"expected_range":[0.69,0.70]}
+{"id":"combo_frequent_use","type":"decay","initial_strength":0.5,"days_elapsed":2,"access_count":0,"expected_range":[0.46,0.48]}
